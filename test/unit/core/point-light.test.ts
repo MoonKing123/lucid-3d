@@ -18,7 +18,7 @@
  *     // Returns intensity factor at target position.
  *     // Formula (Three.js compatible):
  *     //   if distance == 0: 1 / max(d^decay, 0.01)  (no cutoff)
- *     //   else: max(1 - (d/distance)^decay, 0)       (cutoff at distance)
+ *     //   else: max((1 - d/distance)^decay, 0)        (cutoff at distance)
  *     // where d = Euclidean distance from light.position to target
  *   }
  *
@@ -182,8 +182,8 @@ describeImpl('PointLight — 3D distance', () => {
   it('should use 3D Euclidean distance', () => {
     const pl = new PointLight({ distance: 20, decay: 2 });
     pl.position = vec3(3, 4, 0);
-    // d = sqrt(9+16) = 5, d/D = 0.25, factor = 1 - 0.0625 = 0.9375
+    // d = sqrt(9+16) = 5, d/D = 0.25, factor = (1 - 0.25)^2 = 0.5625
     const factor = pl.getAttenuationAt(vec3(0, 0, 0));
-    expect(factor).toBeCloseTo(0.9375, 2);
+    expect(factor).toBeCloseTo(0.5625, 2);
   });
 });
