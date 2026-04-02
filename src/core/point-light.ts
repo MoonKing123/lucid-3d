@@ -6,8 +6,8 @@ import type { Vec3 } from '../math/vec3';
  * 用于灯泡、火把、爆炸等效果。
  *
  * 衰减公式（兼容 Three.js）：
- *   distance == 0: 1 / max(d^decay, 0.01)     — 无截断，永不为零
- *   distance >  0: max(1 - (d/distance)^decay, 0) — 在 distance 处截断为 0
+ *   distance == 0: 1 / max(d^decay, 0.01)       — 无截断，永不为零
+ *   distance >  0: max((1 - d/distance)^decay, 0) — 在 distance 处截断为 0，decay 越大衰减越陡
  * 其中 d 为光源位置到目标点的欧氏距离。
  */
 export class PointLight extends Light {
@@ -37,6 +37,6 @@ export class PointLight extends Light {
     if (this.distance === 0) {
       return 1 / Math.max(Math.pow(d, this.decay), 0.01);
     }
-    return Math.max(1 - Math.pow(d / this.distance, this.decay), 0);
+    return Math.pow(Math.max(1 - d / this.distance, 0), this.decay);
   }
 }
