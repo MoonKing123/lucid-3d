@@ -6,7 +6,7 @@
 import { type Mat4, multiply, normalMatrix as computeNormalMatrix } from '../math/mat4';
 import { type Vec3, vec3 } from '../math/vec3';
 import { Node3D } from '../core/node3d';
-import { PerspectiveCamera } from '../core/camera';
+import { Camera } from '../core/camera';
 import { AmbientLight, DirectionalLight } from '../core/light';
 import { Mesh } from './mesh';
 import { Geometry } from './geometry';
@@ -120,7 +120,7 @@ export class WebGLRenderer {
    * @param scene  - root node of the scene (may be any Node3D)
    * @param camera - perspective camera providing view-projection matrix
    */
-  render(scene: Node3D, camera: PerspectiveCamera): void {
+  render(scene: Node3D, camera: Camera): void {
     const gl = this.gl;
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);

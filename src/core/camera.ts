@@ -1,6 +1,6 @@
 /**
- * PerspectiveCamera — a Node3D that maintains projection and view matrices.
- * Extends Node3D to participate in scene graph hierarchy.
+ * Camera 抽象基类 + PerspectiveCamera + OrthographicCamera。
+ * Camera extends Node3D，保留场景图参与能力。
  */
 
 import { Node3D } from './node3d';
@@ -13,7 +13,15 @@ import {
   multiply,
 } from '../math/mat4';
 
-export class PerspectiveCamera extends Node3D {
+/** Camera 抽象基类 — 所有相机共享的接口 */
+export abstract class Camera extends Node3D {
+  abstract get projectionMatrix(): Mat4;
+  abstract get viewMatrix(): Mat4;
+  abstract get viewProjectionMatrix(): Mat4;
+  abstract lookAt(target: Vec3): void;
+}
+
+export class PerspectiveCamera extends Camera {
   fov: number;
   aspect: number;
   near: number;
@@ -61,7 +69,7 @@ export class PerspectiveCamera extends Node3D {
   }
 }
 
-export class OrthographicCamera extends Node3D {
+export class OrthographicCamera extends Camera {
   left: number;
   right: number;
   bottom: number;
