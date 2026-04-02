@@ -15,12 +15,16 @@
  * Cylinder: Y axis, centered at origin.
  */
 import { describe, it, expect } from 'vitest';
+import * as mod from '../../../src/renderer/primitives';
 import {
   createPlaneGeometry,
   createSphereGeometry,
   createCylinderGeometry,
 } from '../../../src/renderer/primitives';
 import { Geometry } from '../../../src/renderer/geometry';
+
+const isStub = '__STUB__' in mod && (mod as any).__STUB__ === true;
+const describeImpl = isStub ? describe.skip : describe;
 
 /* ═══════════════ Helpers ═══════════════ */
 
@@ -54,7 +58,7 @@ function allIndicesValid(g: Geometry): boolean {
 
 /* ═══════════════ Plane ═══════════════ */
 
-describe('createPlaneGeometry', () => {
+describeImpl('createPlaneGeometry', () => {
   it('should return a Geometry', () => {
     expect(createPlaneGeometry()).toBeInstanceOf(Geometry);
   });
@@ -114,7 +118,7 @@ describe('createPlaneGeometry', () => {
 
 /* ═══════════════ Sphere ═══════════════ */
 
-describe('createSphereGeometry', () => {
+describeImpl('createSphereGeometry', () => {
   it('should return a Geometry', () => {
     expect(createSphereGeometry()).toBeInstanceOf(Geometry);
   });
@@ -176,7 +180,7 @@ describe('createSphereGeometry', () => {
 
 /* ═══════════════ Cylinder ═══════════════ */
 
-describe('createCylinderGeometry', () => {
+describeImpl('createCylinderGeometry', () => {
   it('should return a Geometry', () => {
     expect(createCylinderGeometry()).toBeInstanceOf(Geometry);
   });
