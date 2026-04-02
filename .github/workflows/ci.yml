@@ -47,12 +47,9 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install chromium
 
-      - name: Build
-        run: npx vite build
-
       - name: Run visual tests
         run: |
-          npx vite preview --port 5173 &
+          npx vite --port 5173 &
           sleep 3
           # First pass: generate baselines for this platform
           node test/visual/flywheel-test.mjs --update
