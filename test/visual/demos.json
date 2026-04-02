@@ -28,5 +28,10 @@
     "name": "sprite-billboard",
     "page": "/sprite-demo.html",
     "description": "Billboard sprites: red semi-transparent square on left, white opaque square on right, both always facing camera"
+  },
+  {
+    "name": "point-light",
+    "page": "/point-light-demo.html",
+    "description": "Sphere lit by a red point light positioned upper-right, showing radial attenuation — lit side bright red, dark side near black"
   }
 ]
