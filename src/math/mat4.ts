@@ -268,6 +268,27 @@ export function normalMatrix(modelMatrix: Mat4): Mat4 | null {
 }
 
 /**
+ * Create an orthographic projection matrix.
+ * Maps the box [left,right] × [bottom,top] × [-near,-far] to NDC [-1,+1]³.
+ * Standard OpenGL convention, column-major output.
+ */
+export function ortho(
+  left: number, right: number,
+  bottom: number, top: number,
+  near: number, far: number,
+): Mat4 {
+  const m = mat4();
+  m[0]  = 2 / (right - left);
+  m[5]  = 2 / (top - bottom);
+  m[10] = -2 / (far - near);
+  m[12] = -(right + left) / (right - left);
+  m[13] = -(top + bottom) / (top - bottom);
+  m[14] = -(far + near) / (far - near);
+  m[15] = 1;
+  return m;
+}
+
+/**
  * Transform a 3D point by a 4x4 matrix, performing perspective divide (w-divide).
  * Treats the point as a homogeneous coordinate (x, y, z, 1).
  */

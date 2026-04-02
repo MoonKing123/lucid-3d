@@ -8,6 +8,7 @@ import { type Vec3, vec3 } from '../math/vec3';
 import {
   type Mat4,
   perspective,
+  ortho,
   lookAt as mat4LookAt,
   multiply,
 } from '../math/mat4';
@@ -55,6 +56,48 @@ export class PerspectiveCamera extends Node3D {
    * Orient the camera to face the given target point.
    * Stores the target so that subsequent viewMatrix reads reflect it.
    */
+  lookAt(target: Vec3): void {
+    this._target = target;
+  }
+}
+
+export class OrthographicCamera extends Node3D {
+  left: number;
+  right: number;
+  bottom: number;
+  top: number;
+  near: number;
+  far: number;
+
+  private _target: Vec3;
+
+  constructor(
+    left: number, right: number,
+    bottom: number, top: number,
+    near = 0.1, far = 100,
+  ) {
+    super('orthographic-camera');
+    this.left   = left;
+    this.right  = right;
+    this.bottom = bottom;
+    this.top    = top;
+    this.near   = near;
+    this.far    = far;
+    this._target = vec3(0, 0, -1);
+  }
+
+  get projectionMatrix(): Mat4 {
+    return ortho(this.left, this.right, this.bottom, this.top, this.near, this.far);
+  }
+
+  get viewMatrix(): Mat4 {
+    return mat4LookAt(this.position, this._target, vec3(0, 1, 0));
+  }
+
+  get viewProjectionMatrix(): Mat4 {
+    return multiply(this.projectionMatrix, this.viewMatrix);
+  }
+
   lookAt(target: Vec3): void {
     this._target = target;
   }
