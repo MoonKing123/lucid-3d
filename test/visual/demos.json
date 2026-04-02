@@ -23,5 +23,10 @@
     "name": "phong-lighting",
     "page": "/phong-demo.html",
     "description": "Cube with Blinn-Phong shading, bright top-right, dark bottom-left, orange-brown diffuse"
+  },
+  {
+    "name": "sprite-billboard",
+    "page": "/sprite-demo.html",
+    "description": "Billboard sprites: red semi-transparent square on left, white opaque square on right, both always facing camera"
   }
 ]

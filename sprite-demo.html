@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — Sprite Billboard Demo</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { Sprite, SpriteMaterial } from '/src/renderer/sprite.ts';
+    import { PerspectiveCamera } from '/src/core/camera.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+    import { multiply } from '/src/math/mat4.ts';
+
+    const canvas = document.getElementById('canvas');
+    const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+    if (!gl) throw new Error('WebGL not supported');
+
+    // 启用混合（用于半透明精灵）
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.DEPTH_TEST);
+
+    // 1×1 四边形顶点数据（以原点为中心）
+    const positions = new Float32Array([
+      -0.5, -0.5, 0,
+       0.5, -0.5, 0,
+       0.5,  0.5, 0,
+      -0.5,  0.5, 0,
+    ]);
+    const uvs = new Float32Array([
+      0, 0,
+      1, 0,
+      1, 1,
+      0, 1,
+    ]);
+    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+
+    // 上传顶点数据到 GPU
+    const posBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+    const uvBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+
+    const idxBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    // 编译着色器
+    function compileShader(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error('Shader compile error: ' + gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    // 使用 SpriteMaterial 的 billboard 着色器
+    const templateMat = new SpriteMaterial();
+    const vs = compileShader(gl.VERTEX_SHADER, templateMat.vertexShader);
+    const fs = compileShader(gl.FRAGMENT_SHADER, templateMat.fragmentShader);
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error('Program link error: ' + gl.getProgramInfoLog(program));
+    }
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    // 获取 uniform / attribute 位置
+    const aPosition   = gl.getAttribLocation(program, 'a_position');
+    const aUv         = gl.getAttribLocation(program, 'a_uv');
+    const uModelView  = gl.getUniformLocation(program, 'u_modelView');
+    const uProjection = gl.getUniformLocation(program, 'u_projection');
+    const uColor      = gl.getUniformLocation(program, 'u_color');
+    const uOpacity    = gl.getUniformLocation(program, 'u_opacity');
+    const uHasTexture = gl.getUniformLocation(program, 'u_hasTexture');
+
+    // 相机：正面看向原点，稍微抬高展示 billboard 始终面向相机的效果
+    const camera = new PerspectiveCamera({ fov: Math.PI / 4, aspect: 1, near: 0.1, far: 100 });
+    camera.position = vec3(0, 0.8, 5);
+    camera.lookAt(vec3(0, 0, 0));
+
+    const projection = camera.projectionMatrix;
+    const view       = camera.viewMatrix;
+
+    // 创建两个精灵：左边红色半透明（中央偏左），右边白色不透明
+    // FOV 45° at z=5: half-width ≈ 2.07 units → 2×2 sprite fits within ±1.07 of center
+    const leftSprite = new Sprite(new SpriteMaterial({ color: vec3(1, 0, 0), opacity: 0.5 }));
+    leftSprite.position = vec3(-0.8, 0, 0);
+    leftSprite.scale    = vec3(2, 2, 1);  // 约占画面 1/4
+
+    const rightSprite = new Sprite(new SpriteMaterial({ color: vec3(1, 1, 1), opacity: 1.0 }));
+    rightSprite.position = vec3(1.0, 0, 0);
+    rightSprite.scale    = vec3(2, 2, 1);
+
+    // 渲染一帧
+    gl.viewport(0, 0, 512, 512);
+    gl.clearColor(0.1, 0.1, 0.1, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    gl.useProgram(program);
+    gl.uniformMatrix4fv(uProjection, false, projection);
+    gl.uniform1f(uHasTexture, 0.0);  // 无纹理
+
+    // 绑定顶点属性
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.enableVertexAttribArray(aPosition);
+    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+
+    if (aUv >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+      gl.enableVertexAttribArray(aUv);
+      gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+
+    function drawSprite(sprite) {
+      const modelView = multiply(view, sprite.worldMatrix);
+      gl.uniformMatrix4fv(uModelView, false, modelView);
+      gl.uniform3fv(uColor, sprite.material.color);
+      gl.uniform1f(uOpacity, sprite.material.opacity);
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    }
+
+    // 先绘制不透明，再绘制半透明（正确的 alpha 混合顺序）
+    drawSprite(rightSprite);
+    drawSprite(leftSprite);
+
+    // 通知截图工具已就绪
+    canvas.dataset.ready = '1';
+    console.log('[lucid-3d] Sprite billboard demo rendered.');
+  </script>
+</body>
+</html>
