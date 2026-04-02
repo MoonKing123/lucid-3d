@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lucid-3D Spike — Rotating Triangle</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { initRotatingRenderer, renderRotatingFrame } from '/src/renderer-rotating.ts';
+
+    const canvas = document.getElementById('canvas');
+    const state = initRotatingRenderer(canvas);
+
+    // Read angle from URL param for deterministic testing: ?angle=0.785
+    const params = new URLSearchParams(location.search);
+    const angle = parseFloat(params.get('angle') || '0');
+
+    renderRotatingFrame(state, angle);
+    canvas.dataset.ready = '1';
+    canvas.dataset.angle = String(angle);
+
+    console.log(`[lucid-3d] Rotating triangle rendered at angle=${angle}`);
+  </script>
+</body>
+</html>

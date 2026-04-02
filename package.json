@@ -1,0 +1,23 @@
+{
+  "name": "lucid-3d",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "AI-native 3D game engine — built by AI, for AI",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:visual": "node test/visual/flywheel-test.mjs",
+    "test:visual:update": "node test/visual/flywheel-test.mjs --update",
+    "test:all": "vitest run && node test/visual/flywheel-test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.52.0",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0",
+    "vitest": "^3.1.0"
+  }
+}

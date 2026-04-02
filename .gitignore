@@ -1,0 +1,5 @@
+node_modules/
+dist/
+test/visual/diffs/
+*.log
+.DS_Store
