@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — Colored Cube</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { Node3D } from '/src/core/node3d.ts';
+    import { PerspectiveCamera } from '/src/core/camera.ts';
+    import { createCubeGeometry } from '/src/renderer/geometry.ts';
+    import { Material } from '/src/renderer/material.ts';
+    import { Mesh } from '/src/renderer/mesh.ts';
+    import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+
+    const canvas = document.getElementById('canvas');
+
+    // Scene graph
+    const scene = new Node3D('scene');
+
+    // Cube mesh
+    const geometry = createCubeGeometry();
+    const material = new Material();
+    const cube = new Mesh(geometry, material, 'cube');
+    scene.addChild(cube);
+
+    // Camera at (2, 2, 5) looking at origin
+    const camera = new PerspectiveCamera({
+      fov: Math.PI / 4,
+      aspect: 1,
+      near: 0.1,
+      far: 100,
+    });
+    camera.position = vec3(2, 2, 5);
+    camera.lookAt(vec3(0, 0, 0));
+
+    // Render one frame
+    const renderer = new WebGLRenderer(canvas);
+    renderer.render(scene, camera);
+
+    // Signal ready for screenshot
+    canvas.dataset.ready = '1';
+
+    console.log('[lucid-3d] Colored cube rendered. Ready for screenshot.');
+  </script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+/**
+ * Geometry — holds vertex/index buffer data for a mesh.
+ * Positions and colors are stored as separate Float32Arrays.
+ * Indices are optional (null means use drawArrays).
+ */
+
+export class Geometry {
+  positions: Float32Array;  // xyz per vertex
+  colors: Float32Array;     // rgb per vertex
+  indices: Uint16Array | null;
+
+  constructor(opts: {
+    positions: Float32Array;
+    colors?: Float32Array;
+    indices?: Uint16Array;
+  }) {
+    this.positions = opts.positions;
+    const vertexCount = opts.positions.length / 3;
+    if (opts.colors) {
+      this.colors = opts.colors;
+    } else {
+      // Default to white for all vertices
+      this.colors = new Float32Array(vertexCount * 3).fill(1);
+    }
+    this.indices = opts.indices ?? null;
+  }
+}
+
+/**
+ * Create a 1x1x1 cube centered at origin with per-face vertex colors.
+ * Face colors: +X red, -X green, +Y blue, -Y yellow, +Z cyan, -Z magenta.
+ * Each face is two triangles (6 indices), 4 unique vertices per face.
+ * Total: 24 vertices, 36 indices.
+ */
+export function createCubeGeometry(): Geometry {
+  // prettier-ignore
+  // Each face: 4 vertices × (x,y,z) positions
+  const positions = new Float32Array([
+    // +X face (right) — red
+     0.5,  0.5,  0.5,
+     0.5, -0.5,  0.5,
+     0.5, -0.5, -0.5,
+     0.5,  0.5, -0.5,
+    // -X face (left) — green
+    -0.5,  0.5, -0.5,
+    -0.5, -0.5, -0.5,
+    -0.5, -0.5,  0.5,
+    -0.5,  0.5,  0.5,
+    // +Y face (top) — blue
+    -0.5,  0.5, -0.5,
+    -0.5,  0.5,  0.5,
+     0.5,  0.5,  0.5,
+     0.5,  0.5, -0.5,
+    // -Y face (bottom) — yellow
+    -0.5, -0.5,  0.5,
+    -0.5, -0.5, -0.5,
+     0.5, -0.5, -0.5,
+     0.5, -0.5,  0.5,
+    // +Z face (front) — cyan
+    -0.5,  0.5,  0.5,
+    -0.5, -0.5,  0.5,
+     0.5, -0.5,  0.5,
+     0.5,  0.5,  0.5,
+    // -Z face (back) — magenta
+     0.5,  0.5, -0.5,
+     0.5, -0.5, -0.5,
+    -0.5, -0.5, -0.5,
+    -0.5,  0.5, -0.5,
+  ]);
+
+  // prettier-ignore
+  // Per-vertex colors matching the face colors above
+  const colors = new Float32Array([
+    // +X red
+    1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0,
+    // -X green
+    0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0,
+    // +Y blue
+    0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1,
+    // -Y yellow
+    1, 1, 0,  1, 1, 0,  1, 1, 0,  1, 1, 0,
+    // +Z cyan
+    0, 1, 1,  0, 1, 1,  0, 1, 1,  0, 1, 1,
+    // -Z magenta
+    1, 0, 1,  1, 0, 1,  1, 0, 1,  1, 0, 1,
+  ]);
+
+  // Two triangles per face (CCW winding), 6 faces × 6 indices = 36
+  const indices = new Uint16Array([
+     0,  1,  2,   0,  2,  3,  // +X
+     4,  5,  6,   4,  6,  7,  // -X
+     8,  9, 10,   8, 10, 11,  // +Y
+    12, 13, 14,  12, 14, 15,  // -Y
+    16, 17, 18,  16, 18, 19,  // +Z
+    20, 21, 22,  20, 22, 23,  // -Z
+  ]);
+
+  return new Geometry({ positions, colors, indices });
+}
