@@ -10,10 +10,11 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, dirname, relative } from 'path';
-import { globSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, '..');
 const FIX = process.argv.includes('--fix');
 
 // Find all test files
