@@ -137,6 +137,9 @@ export function quatToMat4(q: Quat): Mat4 {
   return m;
 }
 
+/** quatToMat4 的别名（方便导入） */
+export const toMat4 = quatToMat4;
+
 /** 欧几里得长度 */
 export function quatLength(q: Quat): number {
   return Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
