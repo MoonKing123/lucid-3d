@@ -13,7 +13,7 @@
 <body>
   <canvas id="canvas" width="512" height="512"></canvas>
   <script type="module">
-    import { Node3D } from '/src/core/node3d.ts';
+    import { Scene } from '/src/core/scene.ts';
     import { PerspectiveCamera } from '/src/core/camera.ts';
     import { AmbientLight, DirectionalLight } from '/src/core/light.ts';
     import { createCubeGeometry } from '/src/renderer/geometry.ts';
@@ -25,7 +25,7 @@
     const canvas = document.getElementById('canvas');
 
     // 场景图
-    const scene = new Node3D('scene');
+    const scene = new Scene();
 
     // 环境光（低强度）
     const ambient = new AmbientLight(vec3(1, 1, 1), 0.2);
