@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:visual": "node test/visual/flywheel-test.mjs",
     "test:visual:update": "node test/visual/flywheel-test.mjs --update",
-    "test:all": "vitest run && node test/visual/flywheel-test.mjs"
+    "test:stubs": "node scripts/ensure-stubs.mjs --fix",
+    "test:all": "node scripts/ensure-stubs.mjs --fix && vitest run && node test/visual/flywheel-test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.52.0",

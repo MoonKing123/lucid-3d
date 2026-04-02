@@ -24,6 +24,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Ensure stubs for pre-written tests
+        run: node scripts/ensure-stubs.mjs --fix
+
       - run: pnpm run test
         name: Run unit tests (vitest)
 
