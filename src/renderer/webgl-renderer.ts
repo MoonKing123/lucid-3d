@@ -14,6 +14,7 @@ import { Material } from './material';
 import { TextureMaterial } from './texture-material';
 import { Texture } from './texture';
 import { PhongMaterial } from './phong-material';
+import { BitmapTextMaterial } from './bitmap-text';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -337,6 +338,27 @@ export class WebGLRenderer {
       gl.bindTexture(gl.TEXTURE_2D, webglTex);
       const uTexture = gl.getUniformLocation(compiled.program, 'u_texture');
       gl.uniform1i(uTexture, 0);
+    }
+
+    // BitmapTextMaterial 专用：绑定字体 atlas 纹理 + u_color + 开启 alpha blend
+    if (mesh.material instanceof BitmapTextMaterial) {
+      if (compiled.aUv >= 0 && uploaded.uvBuffer !== null) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+        gl.enableVertexAttribArray(compiled.aUv);
+        gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+      }
+      const btMat = mesh.material;
+      if (btMat.atlas) {
+        const webglTex = this._getWebGLTexture(btMat.atlas);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, webglTex);
+        const uAtlas = gl.getUniformLocation(compiled.program, 'u_atlas');
+        gl.uniform1i(uAtlas, 0);
+      }
+      const uColor = gl.getUniformLocation(compiled.program, 'u_color');
+      gl.uniform3fv(uColor, btMat.color);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     }
 
     // PhongMaterial 专用：绑定法线 + 传递光照 uniforms
