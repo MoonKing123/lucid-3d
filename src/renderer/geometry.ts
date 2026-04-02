@@ -5,13 +5,17 @@
  */
 
 export class Geometry {
-  positions: Float32Array;  // xyz per vertex
-  colors: Float32Array;     // rgb per vertex
+  positions: Float32Array;       // xyz per vertex
+  colors: Float32Array;          // rgb per vertex
+  normals: Float32Array | null;  // xyz per vertex，默认 null
+  uvs: Float32Array | null;      // uv per vertex，默认 null
   indices: Uint16Array | null;
 
   constructor(opts: {
     positions: Float32Array;
     colors?: Float32Array;
+    normals?: Float32Array;
+    uvs?: Float32Array;
     indices?: Uint16Array;
   }) {
     this.positions = opts.positions;
@@ -22,7 +26,17 @@ export class Geometry {
       // Default to white for all vertices
       this.colors = new Float32Array(vertexCount * 3).fill(1);
     }
+    this.normals = opts.normals ?? null;
+    this.uvs = opts.uvs ?? null;
     this.indices = opts.indices ?? null;
+  }
+
+  get hasNormals(): boolean {
+    return this.normals !== null;
+  }
+
+  get hasUVs(): boolean {
+    return this.uvs !== null;
   }
 }
 
@@ -95,5 +109,39 @@ export function createCubeGeometry(): Geometry {
     20, 21, 22,  20, 22, 23,  // -Z
   ]);
 
-  return new Geometry({ positions, colors, indices });
+  // prettier-ignore
+  // 每个面的法线方向，4 个顶点共用同一法线
+  const normals = new Float32Array([
+    // +X 面：法线 (1, 0, 0)
+     1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0,
+    // -X 面：法线 (-1, 0, 0)
+    -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
+    // +Y 面：法线 (0, 1, 0)
+    0,  1, 0,  0,  1, 0,  0,  1, 0,  0,  1, 0,
+    // -Y 面：法线 (0, -1, 0)
+    0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
+    // +Z 面：法线 (0, 0, 1)
+    0, 0,  1,  0, 0,  1,  0, 0,  1,  0, 0,  1,
+    // -Z 面：法线 (0, 0, -1)
+    0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,
+  ]);
+
+  // prettier-ignore
+  // 每个面的 UV 坐标，覆盖 (0,0)→(1,1)，4 个顶点对应四个角
+  const uvs = new Float32Array([
+    // +X 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+    // -X 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+    // +Y 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+    // -Y 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+    // +Z 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+    // -Z 面
+    0, 1,  0, 0,  1, 0,  1, 1,
+  ]);
+
+  return new Geometry({ positions, colors, normals, uvs, indices });
 }
