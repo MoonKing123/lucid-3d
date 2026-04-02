@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — Textured Cube</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { Node3D } from '/src/core/node3d.ts';
+    import { PerspectiveCamera } from '/src/core/camera.ts';
+    import { createCubeGeometry } from '/src/renderer/geometry.ts';
+    import { Texture } from '/src/renderer/texture.ts';
+    import { TextureMaterial } from '/src/renderer/texture-material.ts';
+    import { Mesh } from '/src/renderer/mesh.ts';
+    import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+
+    const canvas = document.getElementById('canvas');
+
+    // 场景图
+    const scene = new Node3D('scene');
+
+    // 棋盘格纹理立方体
+    const geometry = createCubeGeometry();
+    const texture  = Texture.checkerboard(8, 8);
+    const material = new TextureMaterial(texture);
+    const cube     = new Mesh(geometry, material, 'textured-cube');
+    scene.addChild(cube);
+
+    // 摄像机位于 (2, 2, 5)，看向原点
+    const camera = new PerspectiveCamera({
+      fov: Math.PI / 4,
+      aspect: 1,
+      near: 0.1,
+      far: 100,
+    });
+    camera.position = vec3(2, 2, 5);
+    camera.lookAt(vec3(0, 0, 0));
+
+    // 渲染一帧
+    const renderer = new WebGLRenderer(canvas);
+    renderer.render(scene, camera);
+
+    // 通知截图工具已就绪
+    canvas.dataset.ready = '1';
+
+    console.log('[lucid-3d] Textured cube rendered. Ready for screenshot.');
+  </script>
+</body>
+</html>
