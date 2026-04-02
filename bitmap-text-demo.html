@@ -17,7 +17,7 @@
     import { BitmapText } from '/src/renderer/bitmap-text.ts';
     import { OrthographicCamera } from '/src/core/camera.ts';
     import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
-    import { Node3D } from '/src/core/node3d.ts';
+    import { Scene } from '/src/core/scene.ts';
     import { Texture } from '/src/renderer/texture.ts';
     import { vec3 } from '/src/math/vec3.ts';
 
@@ -87,7 +87,7 @@
     );
 
     // ── 2. 搭建场景 ───────────────────────────────────────────────
-    const scene = new Node3D('scene');
+    const scene = new Scene('scene');
 
     // "HELLO" — 白色，居中，画面上方
     const hello = new BitmapText(font, { text: 'HELLO', color: vec3(1, 1, 1), align: 'center' });
