@@ -1,0 +1,17 @@
+[
+  {
+    "name": "triangle-static",
+    "page": "/index.html",
+    "description": "RGB colored triangle on dark background"
+  },
+  {
+    "name": "triangle-rotated",
+    "page": "/rotating.html?angle=0.785",
+    "description": "Same triangle rotated 45 degrees"
+  },
+  {
+    "name": "cube-3d",
+    "page": "/cube.html",
+    "description": "3D colored cube with perspective camera at (2,2,5), vertex-colored faces (red, green, blue, cyan, magenta, yellow)"
+  }
+]
