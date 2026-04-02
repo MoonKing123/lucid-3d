@@ -38,5 +38,10 @@
     "name": "particle-emitter",
     "page": "/particle-demo.html",
     "description": "粒子喷泉效果：粒子从画面底部中央向上喷射扩散，受重力下落。颜色从亮黄色渐变到橙红色，alpha 从 1 渐变到 0。背景深灰/黑色。"
+  },
+  {
+    "name": "bitmap-text",
+    "page": "/bitmap-text-demo.html",
+    "description": "黑色背景上显示白色文字 'HELLO' 居中偏上，下方一行黄色文字 'SCORE: 100' 左对齐。文字清晰可辨，字符间距均匀。"
   }
 ]

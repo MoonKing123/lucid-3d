@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — BitmapText Demo</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { BitmapFont } from '/src/renderer/bitmap-font.ts';
+    import { BitmapText } from '/src/renderer/bitmap-text.ts';
+    import { OrthographicCamera } from '/src/core/camera.ts';
+    import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
+    import { Node3D } from '/src/core/node3d.ts';
+    import { Texture } from '/src/renderer/texture.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+
+    // ── 1. 用 Canvas 2D 生成字体 atlas ─────────────────────────────
+    const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789: ';
+    const FONT_SIZE = 40;
+    const ATLAS_W = 512;
+    const ATLAS_H = 128;
+    const LINE_HEIGHT = FONT_SIZE + 4;
+    const PAD = 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width  = ATLAS_W;
+    offscreen.height = ATLAS_H;
+    const ctx = offscreen.getContext('2d');
+
+    // 透明背景：字符像素有 alpha，背景 alpha=0（供 shader discard）
+    ctx.clearRect(0, 0, ATLAS_W, ATLAS_H);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${FONT_SIZE}px monospace`;
+    ctx.textBaseline = 'top';
+
+    const charMap = new Map();
+    let cx = 0;
+    let cy = 0;
+
+    for (const ch of CHARSET) {
+      const metrics = ctx.measureText(ch);
+      const w = Math.ceil(metrics.width);
+
+      if (cx + w + PAD > ATLAS_W) {
+        cx = 0;
+        cy += FONT_SIZE + PAD;
+      }
+
+      const isSpace = ch === ' ';
+      if (!isSpace) {
+        ctx.fillText(ch, cx, cy);
+      }
+
+      charMap.set(ch.charCodeAt(0), {
+        id:       ch.charCodeAt(0),
+        x:        isSpace ? 0 : cx,
+        y:        isSpace ? 0 : cy,
+        width:    isSpace ? 0 : w,
+        height:   isSpace ? 0 : FONT_SIZE,
+        xoffset:  0,
+        yoffset:  0,
+        xadvance: w + 1,
+      });
+
+      if (!isSpace) {
+        cx += w + PAD;
+      } else {
+        cx += w + PAD;
+      }
+    }
+
+    // 获取 RGBA 像素数据并创建纹理
+    const imgData = ctx.getImageData(0, 0, ATLAS_W, ATLAS_H);
+    const texture = Texture.fromData(ATLAS_W, ATLAS_H, new Uint8Array(imgData.data));
+
+    // 直接构造 BitmapFont（不经过 parse，测试 constructor 路径）
+    const font = new BitmapFont(
+      { lineHeight: LINE_HEIGHT, base: FONT_SIZE, scaleW: ATLAS_W, scaleH: ATLAS_H, chars: charMap },
+      texture,
+    );
+
+    // ── 2. 搭建场景 ───────────────────────────────────────────────
+    const scene = new Node3D('scene');
+
+    // "HELLO" — 白色，居中，画面上方
+    const hello = new BitmapText(font, { text: 'HELLO', color: vec3(1, 1, 1), align: 'center' });
+    hello.position = vec3(0, 60, 0);
+    scene.addChild(hello);
+
+    // "SCORE: 100" — 黄色，左对齐，下方
+    const score = new BitmapText(font, { text: 'SCORE: 100', color: vec3(1, 1, 0), align: 'left' });
+    score.position = vec3(-200, -80, 0);
+    scene.addChild(score);
+
+    // ── 3. 正交相机：世界坐标与屏幕像素对齐 ──────────────────────
+    // 视口 512×512 → 正交范围 [-256, 256] × [-256, 256]
+    const camera = new OrthographicCamera(-256, 256, -256, 256, -10, 10);
+    camera.position = vec3(0, 0, 1);
+    camera.lookAt(vec3(0, 0, 0));
+
+    // ── 4. 渲染一帧 ───────────────────────────────────────────────
+    const canvas = document.getElementById('canvas');
+    const renderer = new WebGLRenderer(canvas);
+
+    // 渲染器接受 PerspectiveCamera 类型，OrthographicCamera 结构兼容
+    renderer.render(scene, /** @type {any} */ (camera));
+
+    // 标记截图就绪
+    canvas.dataset.ready = '1';
+
+    console.log('[lucid-3d] BitmapText demo rendered. Ready for screenshot.');
+  </script>
+</body>
+</html>
