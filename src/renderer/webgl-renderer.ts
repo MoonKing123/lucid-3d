@@ -9,6 +9,8 @@ import { PerspectiveCamera } from '../core/camera';
 import { Mesh } from './mesh';
 import { Geometry } from './geometry';
 import { Material } from './material';
+import { TextureMaterial } from './texture-material';
+import { Texture } from './texture';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -16,12 +18,14 @@ interface CompiledProgram {
   program: WebGLProgram;
   aPosition: number;
   aColor: number;
+  aUv: number;
   uMvp: WebGLUniformLocation;
 }
 
 interface UploadedGeometry {
   positionBuffer: WebGLBuffer;
   colorBuffer: WebGLBuffer;
+  uvBuffer: WebGLBuffer | null;
   indexBuffer: WebGLBuffer | null;
   indexCount: number;
   vertexCount: number;
@@ -64,6 +68,7 @@ export class WebGLRenderer {
   // Caches keyed by object identity
   private programCache: WeakMap<Material, CompiledProgram> = new WeakMap();
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
+  private textureCache: WeakMap<Texture, WebGLTexture> = new WeakMap();
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -103,6 +108,29 @@ export class WebGLRenderer {
     // Nothing else to clean up explicitly without iterating all cached entries.
   }
 
+  private _getWebGLTexture(texture: Texture): WebGLTexture {
+    const cached = this.textureCache.get(texture);
+    if (cached) return cached;
+
+    const gl = this.gl;
+    const webglTex = gl.createTexture();
+    if (!webglTex) throw new Error('Failed to create WebGL texture');
+
+    gl.bindTexture(gl.TEXTURE_2D, webglTex);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      texture.width, texture.height, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE, texture.data,
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    this.textureCache.set(texture, webglTex);
+    return webglTex;
+  }
+
   // ── Private helpers ─────────────────────────────────────────────
 
   private _getProgram(material: Material): CompiledProgram {
@@ -120,10 +148,11 @@ export class WebGLRenderer {
 
     const aPosition = gl.getAttribLocation(program, 'a_position');
     const aColor    = gl.getAttribLocation(program, 'a_color');
+    const aUv       = gl.getAttribLocation(program, 'a_uv');
     const uMvpLoc   = gl.getUniformLocation(program, 'u_mvp');
     if (!uMvpLoc) throw new Error('Shader must define uniform mat4 u_mvp');
 
-    const compiled: CompiledProgram = { program, aPosition, aColor, uMvp: uMvpLoc };
+    const compiled: CompiledProgram = { program, aPosition, aColor, aUv, uMvp: uMvpLoc };
     this.programCache.set(material, compiled);
     return compiled;
   }
@@ -146,6 +175,15 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, geometry.colors, gl.STATIC_DRAW);
 
+    // UV buffer (optional)
+    let uvBuffer: WebGLBuffer | null = null;
+    if (geometry.uvs) {
+      uvBuffer = gl.createBuffer();
+      if (!uvBuffer) throw new Error('Failed to create UV buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.uvs, gl.STATIC_DRAW);
+    }
+
     // Index buffer (optional)
     let indexBuffer: WebGLBuffer | null = null;
     let indexCount = 0;
@@ -158,7 +196,7 @@ export class WebGLRenderer {
     }
 
     const vertexCount = geometry.positions.length / 3;
-    const uploaded: UploadedGeometry = { positionBuffer, colorBuffer, indexBuffer, indexCount, vertexCount };
+    const uploaded: UploadedGeometry = { positionBuffer, colorBuffer, uvBuffer, indexBuffer, indexCount, vertexCount };
     this.geometryCache.set(geometry, uploaded);
     return uploaded;
   }
@@ -188,6 +226,20 @@ export class WebGLRenderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.colorBuffer);
       gl.enableVertexAttribArray(compiled.aColor);
       gl.vertexAttribPointer(compiled.aColor, 3, gl.FLOAT, false, 0, 0);
+    }
+
+    // Bind UV attribute 和纹理（仅 TextureMaterial）
+    if (mesh.material instanceof TextureMaterial) {
+      if (compiled.aUv >= 0 && uploaded.uvBuffer !== null) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+        gl.enableVertexAttribArray(compiled.aUv);
+        gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+      }
+      const webglTex = this._getWebGLTexture(mesh.material.texture);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, webglTex);
+      const uTexture = gl.getUniformLocation(compiled.program, 'u_texture');
+      gl.uniform1i(uTexture, 0);
     }
 
     // Draw

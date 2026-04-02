@@ -13,5 +13,10 @@
     "name": "cube-3d",
     "page": "/cube.html",
     "description": "3D colored cube with perspective camera at (2,2,5), vertex-colored faces (red, green, blue, cyan, magenta, yellow)"
+  },
+  {
+    "name": "texture-cube",
+    "page": "/texture-cube.html",
+    "description": "3D cube with 8x8 checkerboard TextureMaterial, perspective camera at (2,2,5)"
   }
 ]
