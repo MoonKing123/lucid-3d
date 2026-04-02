@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — PointLight Demo</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { Node3D } from '/src/core/node3d.ts';
+    import { PerspectiveCamera } from '/src/core/camera.ts';
+    import { Geometry } from '/src/renderer/geometry.ts';
+    import { createSphereGeometry } from '/src/renderer/primitives.ts';
+    import { Material } from '/src/renderer/material.ts';
+    import { Mesh } from '/src/renderer/mesh.ts';
+    import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
+    import { PointLight } from '/src/core/point-light.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+
+    const canvas = document.getElementById('canvas');
+
+    // 红色点光源 — 位于球体上方偏右
+    const light = new PointLight({
+      color: vec3(1.0, 0.1, 0.1),  // 红色
+      intensity: 3.0,
+      distance: 8,
+      decay: 2,
+    });
+    light.position = vec3(2, 3, 2);
+
+    // 生成球体几何体（含法线）
+    const sphereBase = createSphereGeometry(1, 32, 16);
+    const positions = sphereBase.positions;
+    const normals   = sphereBase.normals;
+    const vertCount = positions.length / 3;
+
+    // 基于点光源衰减计算每顶点颜色（漫反射 + 环境光）
+    const colors = new Float32Array(vertCount * 3);
+    const ambientColor = [0.05, 0.05, 0.05];
+
+    for (let i = 0; i < vertCount; i++) {
+      const vx = positions[i * 3];
+      const vy = positions[i * 3 + 1];
+      const vz = positions[i * 3 + 2];
+
+      const nx = normals[i * 3];
+      const ny = normals[i * 3 + 1];
+      const nz = normals[i * 3 + 2];
+
+      // 光源方向（从顶点指向光源，归一化）
+      const lx = light.position[0] - vx;
+      const ly = light.position[1] - vy;
+      const lz = light.position[2] - vz;
+      const lLen = Math.sqrt(lx * lx + ly * ly + lz * lz);
+      const ldx = lx / lLen;
+      const ldy = ly / lLen;
+      const ldz = lz / lLen;
+
+      // 漫反射：cos(normal, lightDir)
+      const diff = Math.max(nx * ldx + ny * ldy + nz * ldz, 0);
+
+      // 衰减系数
+      const atten = light.getAttenuationAt(vec3(vx, vy, vz));
+
+      // 最终颜色 = 环境光 + 衰减 * 光色 * 强度 * 漫反射
+      const factor = atten * light.intensity * diff;
+      colors[i * 3]     = Math.min(ambientColor[0] + light.color[0] * factor, 1);
+      colors[i * 3 + 1] = Math.min(ambientColor[1] + light.color[1] * factor, 1);
+      colors[i * 3 + 2] = Math.min(ambientColor[2] + light.color[2] * factor, 1);
+    }
+
+    // 创建带颜色的球体几何体
+    const geometry = new Geometry({
+      positions: sphereBase.positions,
+      colors,
+      normals: sphereBase.normals,
+      indices: sphereBase.indices,
+    });
+
+    const material = new Material();
+    const sphere = new Mesh(geometry, material, 'sphere');
+
+    // 场景
+    const scene = new Node3D('scene');
+    scene.addChild(sphere);
+
+    // 相机
+    const camera = new PerspectiveCamera({
+      fov: Math.PI / 4,
+      aspect: 1,
+      near: 0.1,
+      far: 100,
+    });
+    camera.position = vec3(0, 0, 5);
+    camera.lookAt(vec3(0, 0, 0));
+
+    // 渲染一帧
+    const renderer = new WebGLRenderer(canvas);
+    renderer.render(scene, camera);
+
+    // 标记截图就绪
+    canvas.dataset.ready = '1';
+
+    console.log('[lucid-3d] PointLight demo rendered. Ready for screenshot.');
+  </script>
+</body>
+</html>
