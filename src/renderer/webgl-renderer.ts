@@ -6,6 +6,7 @@
 import { type Mat4, multiply, normalMatrix as computeNormalMatrix } from '../math/mat4';
 import { type Vec3, vec3 } from '../math/vec3';
 import { Node3D } from '../core/node3d';
+import { Scene } from '../core/scene';
 import { Camera } from '../core/camera';
 import { AmbientLight, DirectionalLight } from '../core/light';
 import { Mesh } from './mesh';
@@ -121,11 +122,12 @@ export class WebGLRenderer {
    * @param scene  - root node of the scene (may be any Node3D)
    * @param camera - perspective camera providing view-projection matrix
    */
-  render(scene: Node3D, camera: Camera): void {
+  render(scene: Scene, camera: Camera): void {
     const gl = this.gl;
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.clearColor(0.1, 0.1, 0.1, 1.0);
+    const bg = scene.background;
+    gl.clearColor(bg[0], bg[1], bg[2], 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // 收集光源
@@ -133,22 +135,22 @@ export class WebGLRenderer {
     let lightDir: Vec3 = vec3(0, -1, 0);
     let lightColor: Vec3 = vec3(0, 0, 0);
 
-    scene.traverse((node) => {
-      if (node instanceof AmbientLight) {
-        ambientColor = vec3(
-          node.color[0] * node.intensity,
-          node.color[1] * node.intensity,
-          node.color[2] * node.intensity,
-        );
-      } else if (node instanceof DirectionalLight) {
-        lightDir = node.direction;
-        lightColor = vec3(
-          node.color[0] * node.intensity,
-          node.color[1] * node.intensity,
-          node.color[2] * node.intensity,
-        );
-      }
-    });
+    const collected = scene.collectLights();
+    for (const node of collected.ambient) {
+      ambientColor = vec3(
+        node.color[0] * node.intensity,
+        node.color[1] * node.intensity,
+        node.color[2] * node.intensity,
+      );
+    }
+    for (const node of collected.directional) {
+      lightDir = node.direction;
+      lightColor = vec3(
+        node.color[0] * node.intensity,
+        node.color[1] * node.intensity,
+        node.color[2] * node.intensity,
+      );
+    }
 
     const lightCtx: LightContext = {
       ambientColor,

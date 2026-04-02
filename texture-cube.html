@@ -13,7 +13,7 @@
 <body>
   <canvas id="canvas" width="512" height="512"></canvas>
   <script type="module">
-    import { Node3D } from '/src/core/node3d.ts';
+    import { Scene } from '/src/core/scene.ts';
     import { PerspectiveCamera } from '/src/core/camera.ts';
     import { createCubeGeometry } from '/src/renderer/geometry.ts';
     import { Texture } from '/src/renderer/texture.ts';
@@ -25,7 +25,7 @@
     const canvas = document.getElementById('canvas');
 
     // 场景图
-    const scene = new Node3D('scene');
+    const scene = new Scene();
 
     // 棋盘格纹理立方体
     const geometry = createCubeGeometry();

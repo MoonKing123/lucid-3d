@@ -1,16 +1,12 @@
 /**
- * STUB — Scene container (not yet implemented).
+ * Scene — 场景图的根容器，支持背景色、雾效配置和自动光源收集。
  * @see test/unit/core/scene.test.ts
- *
- * Scene extends Node3D as the root container for a 3D scene.
- * Provides background color, linear fog config, and auto light collection.
  */
-export const __STUB__ = true;
 
 import { Node3D } from './node3d';
 import { type Vec3, vec3 } from '../math/vec3';
-import type { AmbientLight, DirectionalLight } from './light';
-import type { PointLight } from './point-light';
+import { AmbientLight, DirectionalLight } from './light';
+import { PointLight } from './point-light';
 
 export interface FogOptions {
   color: Vec3;
@@ -33,14 +29,30 @@ export class Scene extends Node3D {
   background: Vec3;
   fog: FogOptions | null;
 
-  constructor(_opts?: SceneOptions) {
+  constructor(opts?: SceneOptions) {
     super('scene');
-    this.background = vec3(0.1, 0.1, 0.1);
-    this.fog = null;
-    throw new Error('Not implemented');
+    this.background = opts?.background ?? vec3(0.1, 0.1, 0.1);
+    this.fog = opts?.fog ?? null;
   }
 
+  /** DFS 遍历收集所有光源节点 */
   collectLights(): CollectedLights {
-    throw new Error('Not implemented');
+    const result: CollectedLights = {
+      ambient: [],
+      directional: [],
+      point: [],
+    };
+
+    this.traverse((node) => {
+      if (node instanceof AmbientLight) {
+        result.ambient.push(node);
+      } else if (node instanceof DirectionalLight) {
+        result.directional.push(node);
+      } else if (node instanceof PointLight) {
+        result.point.push(node);
+      }
+    });
+
+    return result;
   }
 }

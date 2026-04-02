@@ -13,7 +13,7 @@
 <body>
   <canvas id="canvas" width="512" height="512"></canvas>
   <script type="module">
-    import { Node3D } from '/src/core/node3d.ts';
+    import { Scene } from '/src/core/scene.ts';
     import { PerspectiveCamera } from '/src/core/camera.ts';
     import { Geometry } from '/src/renderer/geometry.ts';
     import { createSphereGeometry } from '/src/renderer/primitives.ts';
@@ -87,7 +87,7 @@
     const sphere = new Mesh(geometry, material, 'sphere');
 
     // 场景
-    const scene = new Node3D('scene');
+    const scene = new Scene();
     scene.addChild(sphere);
 
     // 相机
