@@ -242,6 +242,32 @@ export function invert(m: Mat4): Mat4 | null {
 }
 
 /**
+ * Transpose a 4×4 matrix (swap rows and columns).
+ * Column-major: element at (row r, col c) is at index r + c*4.
+ * Pure function — does not mutate input.
+ */
+export function transpose(m: Mat4): Mat4 {
+  const out = mat4();
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      out[r * 4 + c] = m[c * 4 + r];
+    }
+  }
+  return out;
+}
+
+/**
+ * Compute the normal matrix: transpose(inverse(modelMatrix)).
+ * Returns null if the matrix is singular.
+ * Used to correctly transform surface normals in lighting calculations.
+ */
+export function normalMatrix(modelMatrix: Mat4): Mat4 | null {
+  const inv = invert(modelMatrix);
+  if (inv === null) return null;
+  return transpose(inv);
+}
+
+/**
  * Transform a 3D point by a 4x4 matrix, performing perspective divide (w-divide).
  * Treats the point as a homogeneous coordinate (x, y, z, 1).
  */
