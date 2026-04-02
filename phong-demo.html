@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=512, height=512">
+  <title>Lucid-3D — Phong Shading Demo</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <script type="module">
+    import { Node3D } from '/src/core/node3d.ts';
+    import { PerspectiveCamera } from '/src/core/camera.ts';
+    import { AmbientLight, DirectionalLight } from '/src/core/light.ts';
+    import { createCubeGeometry } from '/src/renderer/geometry.ts';
+    import { PhongMaterial } from '/src/renderer/phong-material.ts';
+    import { Mesh } from '/src/renderer/mesh.ts';
+    import { WebGLRenderer } from '/src/renderer/webgl-renderer.ts';
+    import { vec3 } from '/src/math/vec3.ts';
+
+    const canvas = document.getElementById('canvas');
+
+    // 场景图
+    const scene = new Node3D('scene');
+
+    // 环境光（低强度）
+    const ambient = new AmbientLight(vec3(1, 1, 1), 0.2);
+    scene.addChild(ambient);
+
+    // 方向光（从右上方斜射）
+    const dirLight = new DirectionalLight(vec3(1, 1, 1), 1.0, vec3(-1, -1, -0.5));
+    scene.addChild(dirLight);
+
+    // PhongMaterial 材质
+    const material = new PhongMaterial({
+      ambient:   vec3(0.1, 0.1, 0.1),
+      diffuse:   vec3(0.6, 0.3, 0.1),  // 橙棕色
+      specular:  vec3(1.0, 1.0, 1.0),
+      shininess: 64,
+    });
+
+    // 立方体网格
+    const geometry = createCubeGeometry();
+    const cube = new Mesh(geometry, material, 'cube');
+    scene.addChild(cube);
+
+    // 相机从 (2, 2, 4) 看向原点
+    const camera = new PerspectiveCamera({
+      fov: Math.PI / 4,
+      aspect: 1,
+      near: 0.1,
+      far: 100,
+    });
+    camera.position = vec3(2, 2, 4);
+    camera.lookAt(vec3(0, 0, 0));
+
+    // 渲染一帧
+    const renderer = new WebGLRenderer(canvas);
+    renderer.render(scene, camera);
+
+    // 通知截图工具已就绪
+    canvas.dataset.ready = '1';
+
+    console.log('[lucid-3d] Phong shading demo rendered. Ready for screenshot.');
+  </script>
+</body>
+</html>

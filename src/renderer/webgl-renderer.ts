@@ -3,16 +3,32 @@
  * Uses WebGL 1.0 for maximum compatibility (WeChat mini-games).
  */
 
-import { type Mat4, multiply } from '../math/mat4';
+import { type Mat4, multiply, normalMatrix as computeNormalMatrix } from '../math/mat4';
+import { type Vec3, vec3 } from '../math/vec3';
 import { Node3D } from '../core/node3d';
 import { PerspectiveCamera } from '../core/camera';
+import { AmbientLight, DirectionalLight } from '../core/light';
 import { Mesh } from './mesh';
 import { Geometry } from './geometry';
 import { Material } from './material';
 import { TextureMaterial } from './texture-material';
 import { Texture } from './texture';
+import { PhongMaterial } from './phong-material';
 
 // ── Internal GPU resource cache ──────────────────────────────────
+
+interface PhongLocations {
+  aNormal: number;
+  uModelMatrix: WebGLUniformLocation | null;
+  uNormalMatrix: WebGLUniformLocation | null;
+  uLightDir: WebGLUniformLocation | null;
+  uLightColor: WebGLUniformLocation | null;
+  uAmbientColor: WebGLUniformLocation | null;
+  uCameraPos: WebGLUniformLocation | null;
+  uDiffuse: WebGLUniformLocation | null;
+  uSpecular: WebGLUniformLocation | null;
+  uShininess: WebGLUniformLocation | null;
+}
 
 interface CompiledProgram {
   program: WebGLProgram;
@@ -20,15 +36,24 @@ interface CompiledProgram {
   aColor: number;
   aUv: number;
   uMvp: WebGLUniformLocation;
+  phong?: PhongLocations;
 }
 
 interface UploadedGeometry {
   positionBuffer: WebGLBuffer;
   colorBuffer: WebGLBuffer;
   uvBuffer: WebGLBuffer | null;
+  normalBuffer: WebGLBuffer | null;
   indexBuffer: WebGLBuffer | null;
   indexCount: number;
   vertexCount: number;
+}
+
+interface LightContext {
+  ambientColor: Vec3;
+  lightDir: Vec3;
+  lightColor: Vec3;
+  cameraPos: Vec3;
 }
 
 // ── Shader helpers ────────────────────────────────────────────────
@@ -58,6 +83,15 @@ function createProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShad
     throw new Error(`Program link error: ${info}`);
   }
   return program;
+}
+
+/** 从列优先 Mat4 提取左上 3×3 子矩阵（列优先 mat3，供 uniformMatrix3fv 使用）*/
+function extractMat3(m: Mat4): Float32Array {
+  return new Float32Array([
+    m[0], m[1], m[2],
+    m[4], m[5], m[6],
+    m[8], m[9], m[10],
+  ]);
 }
 
 // ── WebGLRenderer ─────────────────────────────────────────────────
@@ -93,11 +127,40 @@ export class WebGLRenderer {
     gl.clearColor(0.1, 0.1, 0.1, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    // 收集光源
+    let ambientColor: Vec3 = vec3(0, 0, 0);
+    let lightDir: Vec3 = vec3(0, -1, 0);
+    let lightColor: Vec3 = vec3(0, 0, 0);
+
+    scene.traverse((node) => {
+      if (node instanceof AmbientLight) {
+        ambientColor = vec3(
+          node.color[0] * node.intensity,
+          node.color[1] * node.intensity,
+          node.color[2] * node.intensity,
+        );
+      } else if (node instanceof DirectionalLight) {
+        lightDir = node.direction;
+        lightColor = vec3(
+          node.color[0] * node.intensity,
+          node.color[1] * node.intensity,
+          node.color[2] * node.intensity,
+        );
+      }
+    });
+
+    const lightCtx: LightContext = {
+      ambientColor,
+      lightDir,
+      lightColor,
+      cameraPos: camera.position,
+    };
+
     const viewProj = camera.viewProjectionMatrix;
 
     scene.traverse((node) => {
       if (node instanceof Mesh) {
-        this._drawMesh(node, viewProj);
+        this._drawMesh(node, viewProj, lightCtx);
       }
     });
   }
@@ -153,6 +216,23 @@ export class WebGLRenderer {
     if (!uMvpLoc) throw new Error('Shader must define uniform mat4 u_mvp');
 
     const compiled: CompiledProgram = { program, aPosition, aColor, aUv, uMvp: uMvpLoc };
+
+    // 如果是 PhongMaterial，查询额外的 attribute / uniform 位置
+    if (material instanceof PhongMaterial) {
+      compiled.phong = {
+        aNormal:       gl.getAttribLocation(program, 'a_normal'),
+        uModelMatrix:  gl.getUniformLocation(program, 'u_modelMatrix'),
+        uNormalMatrix: gl.getUniformLocation(program, 'u_normalMatrix'),
+        uLightDir:     gl.getUniformLocation(program, 'u_lightDir'),
+        uLightColor:   gl.getUniformLocation(program, 'u_lightColor'),
+        uAmbientColor: gl.getUniformLocation(program, 'u_ambientColor'),
+        uCameraPos:    gl.getUniformLocation(program, 'u_cameraPos'),
+        uDiffuse:      gl.getUniformLocation(program, 'u_diffuse'),
+        uSpecular:     gl.getUniformLocation(program, 'u_specular'),
+        uShininess:    gl.getUniformLocation(program, 'u_shininess'),
+      };
+    }
+
     this.programCache.set(material, compiled);
     return compiled;
   }
@@ -184,6 +264,15 @@ export class WebGLRenderer {
       gl.bufferData(gl.ARRAY_BUFFER, geometry.uvs, gl.STATIC_DRAW);
     }
 
+    // Normal buffer（可选）
+    let normalBuffer: WebGLBuffer | null = null;
+    if (geometry.normals) {
+      normalBuffer = gl.createBuffer();
+      if (!normalBuffer) throw new Error('Failed to create normal buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.normals, gl.STATIC_DRAW);
+    }
+
     // Index buffer (optional)
     let indexBuffer: WebGLBuffer | null = null;
     let indexCount = 0;
@@ -196,12 +285,20 @@ export class WebGLRenderer {
     }
 
     const vertexCount = geometry.positions.length / 3;
-    const uploaded: UploadedGeometry = { positionBuffer, colorBuffer, uvBuffer, indexBuffer, indexCount, vertexCount };
+    const uploaded: UploadedGeometry = {
+      positionBuffer,
+      colorBuffer,
+      uvBuffer,
+      normalBuffer,
+      indexBuffer,
+      indexCount,
+      vertexCount,
+    };
     this.geometryCache.set(geometry, uploaded);
     return uploaded;
   }
 
-  private _drawMesh(mesh: Mesh, viewProj: Mat4): void {
+  private _drawMesh(mesh: Mesh, viewProj: Mat4, lightCtx: LightContext): void {
     const gl = this.gl;
     const compiled  = this._getProgram(mesh.material);
     const uploaded  = this._getGeometry(mesh.geometry);
@@ -240,6 +337,44 @@ export class WebGLRenderer {
       gl.bindTexture(gl.TEXTURE_2D, webglTex);
       const uTexture = gl.getUniformLocation(compiled.program, 'u_texture');
       gl.uniform1i(uTexture, 0);
+    }
+
+    // PhongMaterial 专用：绑定法线 + 传递光照 uniforms
+    if (mesh.material instanceof PhongMaterial && compiled.phong) {
+      const phong = compiled.phong;
+      const mat = mesh.material;
+      const model = mesh.worldMatrix;
+
+      // a_normal attribute
+      if (phong.aNormal >= 0 && uploaded.normalBuffer) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.normalBuffer);
+        gl.enableVertexAttribArray(phong.aNormal);
+        gl.vertexAttribPointer(phong.aNormal, 3, gl.FLOAT, false, 0, 0);
+      }
+
+      // u_modelMatrix
+      if (phong.uModelMatrix) {
+        gl.uniformMatrix4fv(phong.uModelMatrix, false, model);
+      }
+
+      // u_normalMatrix（mat3，从 mat4 提取上左 3×3）
+      if (phong.uNormalMatrix) {
+        const nm = computeNormalMatrix(model);
+        if (nm) {
+          gl.uniformMatrix3fv(phong.uNormalMatrix, false, extractMat3(nm));
+        }
+      }
+
+      // 光照 uniforms
+      if (phong.uLightDir)     gl.uniform3fv(phong.uLightDir, lightCtx.lightDir);
+      if (phong.uLightColor)   gl.uniform3fv(phong.uLightColor, lightCtx.lightColor);
+      if (phong.uAmbientColor) gl.uniform3fv(phong.uAmbientColor, lightCtx.ambientColor);
+      if (phong.uCameraPos)    gl.uniform3fv(phong.uCameraPos, lightCtx.cameraPos);
+
+      // 材质属性 uniforms
+      if (phong.uDiffuse)   gl.uniform3fv(phong.uDiffuse, mat.diffuse);
+      if (phong.uSpecular)  gl.uniform3fv(phong.uSpecular, mat.specular);
+      if (phong.uShininess) gl.uniform1f(phong.uShininess, mat.shininess);
     }
 
     // Draw
