@@ -18,5 +18,10 @@
     "name": "texture-cube",
     "page": "/texture-cube.html",
     "description": "3D cube with 8x8 checkerboard TextureMaterial, perspective camera at (2,2,5)"
+  },
+  {
+    "name": "phong-lighting",
+    "page": "/phong-demo.html",
+    "description": "Cube with Blinn-Phong shading, bright top-right, dark bottom-left, orange-brown diffuse"
   }
 ]
