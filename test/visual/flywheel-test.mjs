@@ -25,11 +25,13 @@ const DIFF_DIR = resolve(__dirname, 'diffs');
 const UPDATE = process.argv.includes('--update');
 const MAX_DIFF_RATIO = 0.01; // Allow 1% pixel difference
 
-const chromiumPath = resolve(
-  homedir(),
-  'Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64',
-  'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-);
+// Find Chromium: CI uses Playwright-installed path, local dev uses cached version
+const localPaths = [
+  resolve(homedir(), 'Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+  resolve(homedir(), '.cache/ms-playwright/chromium-1148/chrome-linux/chrome'),
+];
+const chromiumPath = localPaths.find(p => existsSync(p)) || undefined;
+// If undefined, Playwright will use its own installed browser (CI)
 
 // ── Test infrastructure ─────────────────────────────────────────
 
