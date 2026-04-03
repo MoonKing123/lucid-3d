@@ -27,9 +27,15 @@ const DEFAULT_FRAGMENT_SHADER = `
 export class Material {
   vertexShader: string;
   fragmentShader: string;
+  /** 透明度，范围 0-1，默认 1（完全不透明） */
+  opacity: number;
+  /** 是否启用透明渲染，默认 false */
+  transparent: boolean;
 
   constructor(opts?: { vertexShader?: string; fragmentShader?: string }) {
     this.vertexShader   = opts?.vertexShader   ?? DEFAULT_VERTEX_SHADER;
     this.fragmentShader = opts?.fragmentShader ?? DEFAULT_FRAGMENT_SHADER;
+    this.opacity      = 1;
+    this.transparent  = false;
   }
 }
