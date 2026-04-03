@@ -10,6 +10,7 @@ import { Scene } from '../core/scene';
 import { Camera } from '../core/camera';
 import { AmbientLight, DirectionalLight } from '../core/light';
 import { Mesh } from './mesh';
+import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
 import { Material } from './material';
 import { TextureMaterial } from './texture-material';
@@ -49,6 +50,49 @@ interface UploadedGeometry {
   indexBuffer: WebGLBuffer | null;
   indexCount: number;
   vertexCount: number;
+  jointsBuffer: WebGLBuffer | null;
+  weightsBuffer: WebGLBuffer | null;
+}
+
+const MAX_BONES = 32;
+
+// 蒙皮顶点着色器
+const SKIN_VERT_SRC = `
+precision mediump float;
+attribute vec3 a_position;
+attribute vec3 a_color;
+attribute vec4 a_joints;
+attribute vec4 a_weights;
+uniform mat4 u_mvp;
+uniform mat4 u_boneMatrices[${MAX_BONES}];
+varying vec3 v_color;
+void main() {
+  mat4 skinMatrix =
+    a_weights.x * u_boneMatrices[int(a_joints.x)] +
+    a_weights.y * u_boneMatrices[int(a_joints.y)] +
+    a_weights.z * u_boneMatrices[int(a_joints.z)] +
+    a_weights.w * u_boneMatrices[int(a_joints.w)];
+  gl_Position = u_mvp * skinMatrix * vec4(a_position, 1.0);
+  v_color = a_color;
+}
+`.trim();
+
+const SKIN_FRAG_SRC = `
+precision mediump float;
+varying vec3 v_color;
+void main() {
+  gl_FragColor = vec4(v_color, 1.0);
+}
+`.trim();
+
+interface SkinningProgram {
+  program: WebGLProgram;
+  aPosition: number;
+  aColor: number;
+  aJoints: number;
+  aWeights: number;
+  uMvp: WebGLUniformLocation;
+  uBoneMatrices: WebGLUniformLocation;
 }
 
 interface LightContext {
@@ -105,6 +149,7 @@ export class WebGLRenderer {
   private programCache: WeakMap<Material, CompiledProgram> = new WeakMap();
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
   private textureCache: WeakMap<Texture, WebGLTexture> = new WeakMap();
+  private skinningProgram: SkinningProgram | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -287,6 +332,24 @@ export class WebGLRenderer {
       indexCount = geometry.indices.length;
     }
 
+    // Joints buffer (optional, for SkinnedMesh)
+    let jointsBuffer: WebGLBuffer | null = null;
+    if (geometry.joints) {
+      jointsBuffer = gl.createBuffer();
+      if (!jointsBuffer) throw new Error('Failed to create joints buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, jointsBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.joints, gl.STATIC_DRAW);
+    }
+
+    // Weights buffer (optional, for SkinnedMesh)
+    let weightsBuffer: WebGLBuffer | null = null;
+    if (geometry.weights) {
+      weightsBuffer = gl.createBuffer();
+      if (!weightsBuffer) throw new Error('Failed to create weights buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, weightsBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.weights, gl.STATIC_DRAW);
+    }
+
     const vertexCount = geometry.positions.length / 3;
     const uploaded: UploadedGeometry = {
       positionBuffer,
@@ -296,12 +359,46 @@ export class WebGLRenderer {
       indexBuffer,
       indexCount,
       vertexCount,
+      jointsBuffer,
+      weightsBuffer,
     };
     this.geometryCache.set(geometry, uploaded);
     return uploaded;
   }
 
+  private _getSkinningProgram(): SkinningProgram {
+    if (this.skinningProgram) return this.skinningProgram;
+    const gl = this.gl;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, SKIN_VERT_SRC);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, SKIN_FRAG_SRC);
+    const program = createProgram(gl, vs, fs);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    const uMvpLoc = gl.getUniformLocation(program, 'u_mvp');
+    const uBoneLoc = gl.getUniformLocation(program, 'u_boneMatrices[0]');
+    if (!uMvpLoc) throw new Error('Skinning shader must define uniform mat4 u_mvp');
+    if (!uBoneLoc) throw new Error('Skinning shader must define uniform mat4 u_boneMatrices');
+
+    this.skinningProgram = {
+      program,
+      aPosition: gl.getAttribLocation(program, 'a_position'),
+      aColor:    gl.getAttribLocation(program, 'a_color'),
+      aJoints:   gl.getAttribLocation(program, 'a_joints'),
+      aWeights:  gl.getAttribLocation(program, 'a_weights'),
+      uMvp:      uMvpLoc,
+      uBoneMatrices: uBoneLoc,
+    };
+    return this.skinningProgram;
+  }
+
   private _drawMesh(mesh: Mesh, viewProj: Mat4, lightCtx: LightContext): void {
+    // SkinnedMesh 走专用蒙皮路径
+    if (mesh instanceof SkinnedMesh) {
+      this._drawSkinnedMesh(mesh, viewProj);
+      return;
+    }
+
     const gl = this.gl;
     const compiled  = this._getProgram(mesh.material);
     const uploaded  = this._getGeometry(mesh.geometry);
@@ -399,6 +496,55 @@ export class WebGLRenderer {
       if (phong.uDiffuse)   gl.uniform3fv(phong.uDiffuse, mat.diffuse);
       if (phong.uSpecular)  gl.uniform3fv(phong.uSpecular, mat.specular);
       if (phong.uShininess) gl.uniform1f(phong.uShininess, mat.shininess);
+    }
+
+    // Draw
+    if (uploaded.indexBuffer !== null) {
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, uploaded.indexBuffer);
+      gl.drawElements(gl.TRIANGLES, uploaded.indexCount, gl.UNSIGNED_SHORT, 0);
+    } else {
+      gl.drawArrays(gl.TRIANGLES, 0, uploaded.vertexCount);
+    }
+  }
+
+  private _drawSkinnedMesh(mesh: SkinnedMesh, viewProj: Mat4): void {
+    const gl = this.gl;
+    const skin = this._getSkinningProgram();
+    const uploaded = this._getGeometry(mesh.geometry);
+    const mvp = multiply(viewProj, mesh.worldMatrix);
+
+    gl.useProgram(skin.program);
+    gl.uniformMatrix4fv(skin.uMvp, false, mvp);
+
+    // 上传骨骼矩阵（flat Float32Array，每骨 16 个浮点数）
+    gl.uniformMatrix4fv(skin.uBoneMatrices, false, mesh.skeleton.boneMatrices);
+
+    // a_position
+    if (skin.aPosition >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.positionBuffer);
+      gl.enableVertexAttribArray(skin.aPosition);
+      gl.vertexAttribPointer(skin.aPosition, 3, gl.FLOAT, false, 0, 0);
+    }
+
+    // a_color
+    if (skin.aColor >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.colorBuffer);
+      gl.enableVertexAttribArray(skin.aColor);
+      gl.vertexAttribPointer(skin.aColor, 3, gl.FLOAT, false, 0, 0);
+    }
+
+    // a_joints
+    if (skin.aJoints >= 0 && uploaded.jointsBuffer) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.jointsBuffer);
+      gl.enableVertexAttribArray(skin.aJoints);
+      gl.vertexAttribPointer(skin.aJoints, 4, gl.FLOAT, false, 0, 0);
+    }
+
+    // a_weights
+    if (skin.aWeights >= 0 && uploaded.weightsBuffer) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.weightsBuffer);
+      gl.enableVertexAttribArray(skin.aWeights);
+      gl.vertexAttribPointer(skin.aWeights, 4, gl.FLOAT, false, 0, 0);
     }
 
     // Draw

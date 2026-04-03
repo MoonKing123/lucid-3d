@@ -1,8 +1,7 @@
 /**
- * STUB — SkinnedMesh (not yet implemented).
+ * SkinnedMesh — 蒙皮网格，将 Geometry 与 Skeleton 关联。
  * @see test/unit/renderer/skinned-mesh.test.ts
  */
-export const __STUB__ = true;
 
 import { Mesh } from './mesh';
 import { Geometry } from './geometry';
@@ -13,13 +12,12 @@ export class SkinnedMesh extends Mesh {
   skeleton: Skeleton;
 
   constructor(
-    _geometry: Geometry,
-    _material: Material,
-    _skeleton: Skeleton,
-    _name = 'skinned-mesh',
+    geometry: Geometry,
+    material: Material,
+    skeleton: Skeleton,
+    name = 'skinned-mesh',
   ) {
-    super(_geometry, _material, _name);
-    this.skeleton = _skeleton;
-    throw new Error('Not implemented');
+    super(geometry, material, name);
+    this.skeleton = skeleton;
   }
 }
