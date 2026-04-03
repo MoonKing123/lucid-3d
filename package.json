@@ -11,6 +11,7 @@
     "test:visual": "node test/visual/flywheel-test.mjs",
     "test:visual:update": "node test/visual/flywheel-test.mjs --update",
     "test:stubs": "node scripts/ensure-stubs.mjs --fix",
+    "bench": "vitest bench",
     "test:all": "node scripts/ensure-stubs.mjs --fix && vitest run && node test/visual/flywheel-test.mjs"
   },
   "devDependencies": {
