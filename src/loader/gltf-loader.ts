@@ -2,6 +2,7 @@
  * glTF 2.0 Loader — 将 glTF JSON + 二进制缓冲区解析为引擎场景图。
  * 支持：网格图元（POSITION/NORMAL/TEXCOORD_0/indices）、节点层次结构、
  * 嵌入式 base64 缓冲区、外部 ArrayBuffer、材质基础颜色 → 顶点颜色。
+ * 扩展：skin（骨骼）、animation（动画）、SkinnedMesh。
  */
 
 import { Node3D } from '../core/node3d';
@@ -221,7 +222,7 @@ function resolveBuffers(
   });
 }
 
-/** 递归构建节点，有 mesh 引用的返回 Mesh/SkinnedMesh，否则返回 Node3D。 */
+/** 递归构建节点，有 skin 引用 → SkinnedMesh；有 mesh 引用 → Mesh；否则 → Node3D。 */
 function buildNode(
   json: GltfJson,
   nodeIdx: number,
@@ -294,6 +295,16 @@ function buildPrimitive(
     indices = new Uint16Array(raw as ArrayLike<number>);
   }
 
+  let joints: Float32Array | undefined;
+  if ('JOINTS_0' in attrs) {
+    joints = new Float32Array(readAccessor(json, attrs['JOINTS_0'], buffers));
+  }
+
+  let weights: Float32Array | undefined;
+  if ('WEIGHTS_0' in attrs) {
+    weights = new Float32Array(readAccessor(json, attrs['WEIGHTS_0'], buffers));
+  }
+
   // 材质 baseColorFactor → 顶点颜色（RGB）
   let colors: Float32Array | undefined;
   if (prim.material !== undefined) {
@@ -310,29 +321,49 @@ function buildPrimitive(
     }
   }
 
-  return new Geometry({ positions, colors, normals, uvs, indices });
+  return new Geometry({ positions, colors, normals, uvs, indices, joints, weights });
 }
 
-/** 解析 skins → Skeleton[]。无 skins 时返回空数组。 */
+/**
+ * 解析 json.skins，每个 skin 生成一个 Skeleton。
+ * joint 顺序对应骨骼索引，父子关系通过 nodes[].children 反查。
+ */
 function parseSkins(json: GltfJson, buffers: ArrayBuffer[]): Skeleton[] {
-  if (!json.skins) return [];
+  if (!json.skins || json.skins.length === 0) return [];
   const nodeList = json.nodes ?? [];
 
   return json.skins.map((skin) => {
-    const bones: BoneData[] = skin.joints.map((nodeIdx) => ({
-      name: nodeList[nodeIdx]?.name ?? `bone_${nodeIdx}`,
-      parentIndex: -1,
-    }));
+    const joints = skin.joints; // glTF node 索引数组
 
+    // 构建 BoneData[]，通过 nodes[].children 反查父子关系
+    const bones: BoneData[] = joints.map((nodeIdx, ji) => {
+      const name = nodeList[nodeIdx]?.name ?? `bone_${ji}`;
+      // 查找父骨骼：找哪个 joint node 的 children 包含本 nodeIdx
+      let parentIndex = -1;
+      for (let pi = 0; pi < joints.length; pi++) {
+        const parentNodeIdx = joints[pi];
+        const parentChildren = nodeList[parentNodeIdx]?.children ?? [];
+        if (parentChildren.includes(nodeIdx)) {
+          parentIndex = pi;
+          break;
+        }
+      }
+      return { name, parentIndex };
+    });
+
+    // 读取 inverseBindMatrices
     let ibm: Float32Array;
     if (skin.inverseBindMatrices !== undefined) {
-      ibm = new Float32Array(readAccessor(json, skin.inverseBindMatrices, buffers) as Float32Array);
+      const raw = readAccessor(json, skin.inverseBindMatrices, buffers);
+      ibm = new Float32Array(raw);
     } else {
-      // 无 IBM accessor：每块骨骼使用单位矩阵
-      ibm = new Float32Array(bones.length * 16);
-      for (let i = 0; i < bones.length; i++) {
-        ibm[i * 16]      = 1; ibm[i * 16 + 5]  = 1;
-        ibm[i * 16 + 10] = 1; ibm[i * 16 + 15] = 1;
+      // 没有 IBM 时使用单位矩阵
+      ibm = new Float32Array(joints.length * 16);
+      for (let i = 0; i < joints.length; i++) {
+        ibm[i * 16 + 0]  = 1;
+        ibm[i * 16 + 5]  = 1;
+        ibm[i * 16 + 10] = 1;
+        ibm[i * 16 + 15] = 1;
       }
     }
 
