@@ -14,11 +14,29 @@ export interface CollisionEvent {
   otherNode: Node3D;
   selfCollider: SphereCollider;
   otherCollider: SphereCollider;
-  /** 最小分离向量（从 self 指向 other）。 */
+  /** 最小分离向量（从 self 指向 other）。触发器模式下始终为零向量。 */
   separation: Vec3;
 }
 
 export type CollisionCallback = (event: CollisionEvent) => void;
+
+export interface BodyOptions {
+  shape: SphereCollider;
+  /** 碰撞体所在层（bitmask，默认 1）。 */
+  layer?: number;
+  /** 检测哪些层（bitmask，默认 0xFFFFFFFF）。 */
+  mask?: number;
+  /** 触发器模式：触发事件但 separation 始终为零向量（默认 false）。 */
+  isTrigger?: boolean;
+}
+
+/** 内部存储每个节点的碰撞体信息。 */
+interface BodyEntry {
+  shape: SphereCollider;
+  layer: number;
+  mask: number;
+  isTrigger: boolean;
+}
 
 /* ---------- SphereCollider ---------- */
 
@@ -89,7 +107,7 @@ function pairKey(a: Node3D, b: Node3D): string {
 /* ---------- CollisionWorld ---------- */
 
 export class CollisionWorld {
-  private _colliders: Map<Node3D, SphereCollider> = new Map();
+  private _bodies: Map<Node3D, BodyEntry> = new Map();
 
   private _enterCbs: Map<Node3D, CollisionCallback[]> = new Map();
   private _stayCbs: Map<Node3D, CollisionCallback[]> = new Map();
@@ -98,13 +116,24 @@ export class CollisionWorld {
   /** 上一帧活跃的碰撞对 key 集合 */
   private _activePairs: Set<string> = new Set();
 
+  /** 向后兼容接口：等价于 addBody({ shape, layer: 1, mask: 0xFFFFFFFF, isTrigger: false })。 */
   addCollider(node: Node3D, collider: SphereCollider): void {
+    this.addBody(node, { shape: collider });
+  }
+
+  /** 新推荐接口：支持 layer/mask 过滤和 trigger 模式。 */
+  addBody(node: Node3D, options: BodyOptions): void {
     ensureId(node);
-    this._colliders.set(node, collider);
+    this._bodies.set(node, {
+      shape: options.shape,
+      layer: options.layer ?? 1,
+      mask: options.mask ?? 0xFFFFFFFF,
+      isTrigger: options.isTrigger ?? false,
+    });
   }
 
   removeCollider(node: Node3D): void {
-    this._colliders.delete(node);
+    this._bodies.delete(node);
     const id = (node as any).__collisionId as number | undefined;
     if (id !== undefined) {
       for (const key of this._activePairs) {
@@ -117,7 +146,7 @@ export class CollisionWorld {
   }
 
   getCollider(node: Node3D): SphereCollider | undefined {
-    return this._colliders.get(node);
+    return this._bodies.get(node)?.shape;
   }
 
   onCollisionEnter(node: Node3D, cb: CollisionCallback): void {
@@ -135,17 +164,25 @@ export class CollisionWorld {
     this._exitCbs.get(node)!.push(cb);
   }
 
-  /** O(n²) 遍历所有碰撞对，触发事件。 */
+  /** O(n²) 遍历所有碰撞对，触发事件。step() 在相交测试前先做 layer/mask 过滤。 */
   step(): void {
-    const nodes = Array.from(this._colliders.keys());
+    const nodes = Array.from(this._bodies.keys());
     const newPairs = new Set<string>();
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const nodeA = nodes[i];
         const nodeB = nodes[j];
-        const colA = this._colliders.get(nodeA)!;
-        const colB = this._colliders.get(nodeB)!;
+        const entryA = this._bodies.get(nodeA)!;
+        const entryB = this._bodies.get(nodeB)!;
+
+        // layer/mask 双向过滤：(A.layer & B.mask) !== 0 AND (B.layer & A.mask) !== 0
+        if ((entryA.layer & entryB.mask) === 0 || (entryB.layer & entryA.mask) === 0) {
+          continue;
+        }
+
+        const colA = entryA.shape;
+        const colB = entryB.shape;
 
         // world-space 位置 = 节点位置 + 碰撞体局部中心偏移
         const posA = add(nodeA.position, colA.center);
@@ -158,11 +195,16 @@ export class CollisionWorld {
           const key = pairKey(nodeA, nodeB);
           newPairs.add(key);
 
-          // 分离向量：从 A 指向 B，大小 = overlap depth
-          const dir = sub(posB, posA);
-          const separationAtoB = dist > 0
-            ? scale(normalize(dir), overlap)
-            : vec3(overlap, 0, 0); // 同心球退化情况
+          // 触发器模式：separation 强制为零向量
+          let separationAtoB: Vec3;
+          if (entryA.isTrigger || entryB.isTrigger) {
+            separationAtoB = vec3(0, 0, 0);
+          } else {
+            const dir = sub(posB, posA);
+            separationAtoB = dist > 0
+              ? scale(normalize(dir), overlap)
+              : vec3(overlap, 0, 0); // 同心球退化情况
+          }
 
           if (this._activePairs.has(key)) {
             this._fireEvent(nodeA, nodeB, colA, colB, separationAtoB, 'stay');
@@ -182,8 +224,8 @@ export class CollisionWorld {
         const nodeA = nodes.find(n => (n as any).__collisionId === idA);
         const nodeB = nodes.find(n => (n as any).__collisionId === idB);
         if (nodeA && nodeB) {
-          const colA = this._colliders.get(nodeA)!;
-          const colB = this._colliders.get(nodeB)!;
+          const colA = this._bodies.get(nodeA)!.shape;
+          const colB = this._bodies.get(nodeB)!.shape;
           this._fireEvent(nodeA, nodeB, colA, colB, vec3(0, 0, 0), 'exit');
         }
       }
@@ -192,13 +234,17 @@ export class CollisionWorld {
     this._activePairs = newPairs;
   }
 
-  /** 查询与给定球体重叠的所有节点。 */
-  query(center: Vec3, radius: number): Node3D[] {
+  /** 查询与给定球体重叠的所有节点。layerMask 可选，过滤返回层。 */
+  query(center: Vec3, radius: number, layerMask?: number): Node3D[] {
     const results: Node3D[] = [];
-    for (const [node, col] of this._colliders) {
-      const worldPos = add(node.position, col.center);
+    for (const [node, entry] of this._bodies) {
+      // 如果指定了 layerMask，过滤不在该层的节点
+      if (layerMask !== undefined && (entry.layer & layerMask) === 0) {
+        continue;
+      }
+      const worldPos = add(node.position, entry.shape.center);
       const dist = length(sub(worldPos, center));
-      if (dist <= radius + col.radius) {
+      if (dist <= radius + entry.shape.radius) {
         results.push(node);
       }
     }
@@ -206,7 +252,7 @@ export class CollisionWorld {
   }
 
   get size(): number {
-    return this._colliders.size;
+    return this._bodies.size;
   }
 
   private _fireEvent(
