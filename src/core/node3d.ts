@@ -23,6 +23,8 @@ export class Node3D {
 
   parent: Node3D | null;
   children: Node3D[];
+  /** 是否可见，默认 true */
+  visible: boolean;
 
   constructor(name = '') {
     this.name = name;
@@ -31,6 +33,7 @@ export class Node3D {
     this.scale = vec3(1, 1, 1);
     this.parent = null;
     this.children = [];
+    this.visible = true;
   }
 
   /** Add a child node, removing it from its previous parent first. */
