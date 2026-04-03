@@ -5,8 +5,6 @@
  * @see test/unit/ui/ui-canvas.test.ts (UICanvas 测试中覆盖 UIElement 行为)
  */
 
-export const __STUB__ = true;
-
 import type { Vec3 } from '../math/vec3';
 
 export type Anchor =
@@ -49,16 +47,62 @@ export class UIElement {
   onPointerDown: ((e: { x: number; y: number }) => void) | null;
   onPointerUp: ((e: { x: number; y: number }) => void) | null;
 
-  constructor(_options?: UIElementOptions) {
-    throw new Error('STUB');
+  constructor(options?: UIElementOptions) {
+    this.x = options?.x ?? 0;
+    this.y = options?.y ?? 0;
+    this.width = options?.width ?? 0;
+    this.height = options?.height ?? 0;
+    this.anchor = options?.anchor ?? 'topLeft';
+    this.visible = options?.visible ?? true;
+    this.opacity = options?.opacity ?? 1;
+    this.interactive = options?.interactive ?? false;
+    this.name = options?.name ?? '';
+    this.parent = null;
+    this.children = [];
+    this.onPointerDown = null;
+    this.onPointerUp = null;
   }
 
-  add(_child: UIElement): void { throw new Error('STUB'); }
-  remove(_child: UIElement): void { throw new Error('STUB'); }
+  add(child: UIElement): void {
+    child.parent = this;
+    this.children.push(child);
+  }
+
+  remove(child: UIElement): void {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+      child.parent = null;
+    }
+  }
 
   /** 计算屏幕空间包围框（考虑锚点偏移） */
-  getScreenBounds(): ScreenBounds { throw new Error('STUB'); }
+  getScreenBounds(): ScreenBounds {
+    const w = this.width;
+    const h = this.height;
+    let ox = 0;
+    let oy = 0;
+
+    // 水平偏移
+    if (this.anchor === 'topCenter' || this.anchor === 'center' || this.anchor === 'bottomCenter') {
+      ox = -w / 2;
+    } else if (this.anchor === 'topRight' || this.anchor === 'centerRight' || this.anchor === 'bottomRight') {
+      ox = -w;
+    }
+
+    // 垂直偏移
+    if (this.anchor === 'centerLeft' || this.anchor === 'center' || this.anchor === 'centerRight') {
+      oy = -h / 2;
+    } else if (this.anchor === 'bottomLeft' || this.anchor === 'bottomCenter' || this.anchor === 'bottomRight') {
+      oy = -h;
+    }
+
+    return { x: this.x + ox, y: this.y + oy, width: w, height: h };
+  }
 
   /** 判断屏幕坐标是否在此元素内 */
-  containsPoint(_px: number, _py: number): boolean { throw new Error('STUB'); }
+  containsPoint(px: number, py: number): boolean {
+    const b = this.getScreenBounds();
+    return px >= b.x && px < b.x + b.width && py >= b.y && py < b.y + b.height;
+  }
 }
