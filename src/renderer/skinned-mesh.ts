@@ -1,5 +1,6 @@
 /**
- * SkinnedMesh — 蒙皮网格，将 Geometry 与 Skeleton 关联。
+ * SkinnedMesh — 带骨骼蒙皮的可渲染节点。
+ * 扩展 Mesh，持有 Skeleton 引用，用于骨骼动画渲染。
  * @see test/unit/renderer/skinned-mesh.test.ts
  */
 
