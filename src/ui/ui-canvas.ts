@@ -6,33 +6,70 @@
  * @see test/unit/ui/ui-canvas.test.ts
  */
 
-export const __STUB__ = true;
-
-import type { Mat4 } from '../math/mat4';
-import type { UIElement } from './ui-element';
+import { ortho, type Mat4 } from '../math/mat4';
+import { UIElement } from './ui-element';
 
 export class UICanvas {
   width: number;
   height: number;
   children: UIElement[];
+  private _projection: Mat4;
 
-  constructor(_width: number, _height: number) {
-    throw new Error('STUB');
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.children = [];
+    this._projection = ortho(0, width, height, 0, -1, 1);
   }
 
   /** 正交投影矩阵：ortho(0, width, height, 0, -1, 1)，Y 轴向下 */
-  get projectionMatrix(): Mat4 { throw new Error('STUB'); }
+  get projectionMatrix(): Mat4 {
+    return this._projection;
+  }
 
-  add(_child: UIElement): void { throw new Error('STUB'); }
-  remove(_child: UIElement): void { throw new Error('STUB'); }
-  clear(): void { throw new Error('STUB'); }
+  add(child: UIElement): void {
+    this.children.push(child);
+  }
+
+  remove(child: UIElement): void {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+    }
+  }
+
+  clear(): void {
+    this.children.length = 0;
+  }
 
   /** 按名称查找元素（深度优先搜索） */
-  findByName(_name: string): UIElement | null { throw new Error('STUB'); }
+  findByName(name: string): UIElement | null {
+    const search = (els: UIElement[]): UIElement | null => {
+      for (const el of els) {
+        if (el.name === name) return el;
+        const found = search(el.children);
+        if (found) return found;
+      }
+      return null;
+    };
+    return search(this.children);
+  }
 
-  /** 命中测试：返回坐标处最前方的 interactive 元素，无命中返回 null */
-  hitTest(_x: number, _y: number): UIElement | null { throw new Error('STUB'); }
+  /** 命中测试：返回坐标处最前方（最后添加）的 interactive+visible 元素，无命中返回 null */
+  hitTest(x: number, y: number): UIElement | null {
+    for (let i = this.children.length - 1; i >= 0; i--) {
+      const el = this.children[i];
+      if (el.interactive && el.visible && el.containsPoint(x, y)) {
+        return el;
+      }
+    }
+    return null;
+  }
 
   /** 更新视口尺寸 */
-  resize(_width: number, _height: number): void { throw new Error('STUB'); }
+  resize(width: number, height: number): void {
+    this.width = width;
+    this.height = height;
+    this._projection = ortho(0, width, height, 0, -1, 1);
+  }
 }
