@@ -1,8 +1,7 @@
 /**
- * STUB — AnimationClip (not yet implemented).
+ * AnimationClip — 动画片段，包含多个 KeyframeTrack。
  * @see test/unit/animation/animation-mixer.test.ts
  */
-export const __STUB__ = true;
 
 import { KeyframeTrack } from './keyframe-track';
 
@@ -11,10 +10,9 @@ export class AnimationClip {
   readonly duration: number;
   readonly tracks: ReadonlyArray<KeyframeTrack>;
 
-  constructor(_name: string, _tracks: KeyframeTrack[]) {
-    this.name = _name;
-    this.tracks = _tracks;
-    this.duration = 0;
-    throw new Error('Not implemented');
+  constructor(name: string, tracks: KeyframeTrack[]) {
+    this.name = name;
+    this.tracks = tracks;
+    this.duration = tracks.reduce((max, t) => Math.max(max, t.duration), 0);
   }
 }
