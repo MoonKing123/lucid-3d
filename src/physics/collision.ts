@@ -3,7 +3,7 @@
  * 支持碰撞事件回调（enter/stay/exit）和空间查询。
  * @see test/unit/physics/collision.test.ts
  */
-import { type Vec3, vec3, add, sub, scale, length, normalize } from '../math/vec3';
+import { type Vec3, vec3, add, sub, scale, length, normalize, dot } from '../math/vec3';
 import { type AABB } from '../math/aabb';
 import { type Node3D } from '../core/node3d';
 
@@ -102,6 +102,12 @@ function pairKey(a: Node3D, b: Node3D): string {
   const idA = (a as any).__collisionId as number;
   const idB = (b as any).__collisionId as number;
   return idA < idB ? `${idA}-${idB}` : `${idB}-${idA}`;
+}
+
+export interface CollisionRaycastHit {
+  node: Node3D;
+  distance: number;
+  point: Vec3;
 }
 
 /* ---------- CollisionWorld ---------- */
@@ -253,6 +259,69 @@ export class CollisionWorld {
 
   get size(): number {
     return this._bodies.size;
+  }
+
+  /**
+   * 光线投射，返回按距离排序的命中列表。
+   * 支持 SphereCollider（解析法）和 BoxCollider（slab 法）。
+   */
+  raycast(
+    origin: Vec3,
+    direction: Vec3,
+    maxDistance = Infinity,
+    layerMask = 0xFFFFFFFF,
+  ): CollisionRaycastHit[] {
+    const hits: CollisionRaycastHit[] = [];
+
+    for (const [node, entry] of this._bodies) {
+      if ((entry.layer & layerMask) === 0) continue;
+      const shape = entry.shape;
+
+      if (shape instanceof SphereCollider) {
+        // 解析法：求解 |origin + t*dir - center|² = r²
+        const center = add(node.position, shape.center);
+        const oc = sub(origin, center);
+        const a = dot(direction, direction);
+        const b = 2 * dot(oc, direction);
+        const c = dot(oc, oc) - shape.radius * shape.radius;
+        const disc = b * b - 4 * a * c;
+        if (disc < 0) continue;
+        const sqrtD = Math.sqrt(disc);
+        const t1 = (-b - sqrtD) / (2 * a);
+        const t2 = (-b + sqrtD) / (2 * a);
+        const t = t1 >= 0 ? t1 : t2;
+        if (t < 0 || t > maxDistance) continue;
+        hits.push({ node, distance: t, point: add(origin, scale(direction, t)) });
+      } else {
+        // Slab 法：ray-AABB 交叉（duck type BoxCollider）
+        const box = shape as { center: Vec3; halfExtents: Vec3 };
+        let tEnter = -Infinity;
+        let tExit = Infinity;
+        let miss = false;
+        for (let i = 0; i < 3; i++) {
+          const mn = node.position[i] + box.center[i] - box.halfExtents[i];
+          const mx = node.position[i] + box.center[i] + box.halfExtents[i];
+          const d = direction[i];
+          if (Math.abs(d) < 1e-10) {
+            if (origin[i] < mn || origin[i] > mx) { miss = true; break; }
+          } else {
+            const t1 = (mn - origin[i]) / d;
+            const t2 = (mx - origin[i]) / d;
+            const tLo = Math.min(t1, t2);
+            const tHi = Math.max(t1, t2);
+            if (tLo > tEnter) tEnter = tLo;
+            if (tHi < tExit) tExit = tHi;
+          }
+        }
+        if (miss || tEnter > tExit || tExit < 0) continue;
+        const t = tEnter >= 0 ? tEnter : tExit;
+        if (t > maxDistance) continue;
+        hits.push({ node, distance: t, point: add(origin, scale(direction, t)) });
+      }
+    }
+
+    hits.sort((a, b) => a.distance - b.distance);
+    return hits;
   }
 
   private _fireEvent(
