@@ -125,6 +125,13 @@ export function createMockGL(): MockGL & WebGLRenderingContext {
   const NO_ERROR            = 0;
   const UNPACK_FLIP_Y_WEBGL = 0x9240;
   const UNPACK_PREMULTIPLY_ALPHA_WEBGL = 0x9241;
+  const TEXTURE_CUBE_MAP              = 0x8513;
+  const TEXTURE_CUBE_MAP_POSITIVE_X   = 0x8515;
+  const TEXTURE_CUBE_MAP_NEGATIVE_X   = 0x8516;
+  const TEXTURE_CUBE_MAP_POSITIVE_Y   = 0x8517;
+  const TEXTURE_CUBE_MAP_NEGATIVE_Y   = 0x8518;
+  const TEXTURE_CUBE_MAP_POSITIVE_Z   = 0x8519;
+  const TEXTURE_CUBE_MAP_NEGATIVE_Z   = 0x851A;
 
   const gl: any = {
     // ── 追踪属性 ─────────────────────────────────────────────────
@@ -155,6 +162,9 @@ export function createMockGL(): MockGL & WebGLRenderingContext {
     COLOR_ATTACHMENT0, DEPTH_ATTACHMENT, STENCIL_ATTACHMENT, DEPTH_STENCIL_ATTACHMENT,
     FRAMEBUFFER_COMPLETE, DEPTH_COMPONENT16, DEPTH_STENCIL,
     NO_ERROR, UNPACK_FLIP_Y_WEBGL, UNPACK_PREMULTIPLY_ALPHA_WEBGL,
+    TEXTURE_CUBE_MAP, TEXTURE_CUBE_MAP_POSITIVE_X, TEXTURE_CUBE_MAP_NEGATIVE_X,
+    TEXTURE_CUBE_MAP_POSITIVE_Y, TEXTURE_CUBE_MAP_NEGATIVE_Y,
+    TEXTURE_CUBE_MAP_POSITIVE_Z, TEXTURE_CUBE_MAP_NEGATIVE_Z,
 
     // canvas 由 createMockCanvas 注入
     canvas: null as unknown as HTMLCanvasElement,
