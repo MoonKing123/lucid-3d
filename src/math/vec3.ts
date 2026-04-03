@@ -4,14 +4,19 @@
  * All functions are pure (no mutation of inputs).
  */
 
-export type Vec3 = Float32Array;
+export type Vec3 = Float32Array & { x: number; y: number; z: number };
 
 /** Create a new Vec3 from components (defaults to 0). */
 export function vec3(x = 0, y = 0, z = 0): Vec3 {
-  const v = new Float32Array(3);
+  const v = new Float32Array(3) as Vec3;
   v[0] = x;
   v[1] = y;
   v[2] = z;
+  Object.defineProperties(v, {
+    x: { get() { return this[0]; }, set(val: number) { this[0] = val; }, configurable: true, enumerable: false },
+    y: { get() { return this[1]; }, set(val: number) { this[1] = val; }, configurable: true, enumerable: false },
+    z: { get() { return this[2]; }, set(val: number) { this[2] = val; }, configurable: true, enumerable: false },
+  });
   return v;
 }
 
