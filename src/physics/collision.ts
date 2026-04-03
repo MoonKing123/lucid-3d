@@ -32,7 +32,7 @@ export interface BodyOptions {
 
 /** 内部存储每个节点的碰撞体信息。 */
 interface BodyEntry {
-  shape: SphereCollider;
+  shape: SphereCollider | { center: Vec3; halfExtents?: Vec3; radius?: number };
   layer: number;
   mask: number;
   isTrigger: boolean;
@@ -127,15 +127,23 @@ export class CollisionWorld {
     this.addBody(node, { shape: collider });
   }
 
-  /** 新推荐接口：支持 layer/mask 过滤和 trigger 模式。 */
-  addBody(node: Node3D, options: BodyOptions): void {
+  /** 新推荐接口：支持 layer/mask 过滤和 trigger 模式。也接受裸碰撞体（BoxCollider/SphereCollider）直接传入。 */
+  addBody(node: Node3D, options: BodyOptions | SphereCollider | { center: Vec3; halfExtents?: Vec3 }): void {
     ensureId(node);
-    this._bodies.set(node, {
-      shape: options.shape,
-      layer: options.layer ?? 1,
-      mask: options.mask ?? 0xFFFFFFFF,
-      isTrigger: options.isTrigger ?? false,
-    });
+    let shape: BodyEntry['shape'];
+    let layer = 1;
+    let mask = 0xFFFFFFFF;
+    let isTrigger = false;
+    if ('shape' in options) {
+      const opts = options as BodyOptions;
+      shape = opts.shape;
+      layer = opts.layer ?? 1;
+      mask = opts.mask ?? 0xFFFFFFFF;
+      isTrigger = opts.isTrigger ?? false;
+    } else {
+      shape = options as SphereCollider | { center: Vec3; halfExtents?: Vec3 };
+    }
+    this._bodies.set(node, { shape, layer, mask, isTrigger });
   }
 
   removeCollider(node: Node3D): void {
@@ -322,6 +330,33 @@ export class CollisionWorld {
 
     hits.sort((a, b) => a.distance - b.distance);
     return hits;
+  }
+
+  /**
+   * 地面检测辅助：查找在 y 坐标以下、距离 maxDistance 内最近的地面表面 Y 值。
+   * 只检查 Y 轴，忽略 X/Z 位置（适用于角色控制器地面接近度检测）。
+   * @returns 最高的地面 Y 坐标，如果没有则返回 null
+   */
+  findGround(y: number, maxDistance: number, layerMask = 0xFFFFFFFF): number | null {
+    let highestY: number | null = null;
+    for (const [node, entry] of this._bodies) {
+      if ((entry.layer & layerMask) === 0) continue;
+      const shape = entry.shape;
+      if (!shape) continue;
+      let topY: number;
+      if (shape instanceof SphereCollider) {
+        topY = node.position[1] + shape.center[1] + shape.radius;
+      } else {
+        const box = shape as { center: Vec3; halfExtents?: Vec3 };
+        topY = node.position[1] + (box.center?.[1] ?? 0) + (box.halfExtents?.[1] ?? 0);
+      }
+      if (topY <= y && y - topY <= maxDistance) {
+        if (highestY === null || topY > highestY) {
+          highestY = topY;
+        }
+      }
+    }
+    return highestY;
   }
 
   private _fireEvent(
