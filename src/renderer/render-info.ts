@@ -4,8 +4,6 @@
  *
  * @see test/unit/renderer/render-info.test.ts
  */
-export const __STUB__ = true;
-
 export interface RenderInfo {
   /** 本帧 draw call 次数 */
   drawCalls: number;
