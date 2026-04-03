@@ -10,6 +10,8 @@ export class Geometry {
   normals: Float32Array | null;  // xyz per vertex，默认 null
   uvs: Float32Array | null;      // uv per vertex，默认 null
   indices: Uint16Array | null;
+  joints: Float32Array | null;   // 4 per vertex (bone indices)
+  weights: Float32Array | null;  // 4 per vertex (blend weights)
 
   constructor(opts: {
     positions: Float32Array;
@@ -17,6 +19,8 @@ export class Geometry {
     normals?: Float32Array;
     uvs?: Float32Array;
     indices?: Uint16Array;
+    joints?: Float32Array;
+    weights?: Float32Array;
   }) {
     this.positions = opts.positions;
     const vertexCount = opts.positions.length / 3;
@@ -29,6 +33,8 @@ export class Geometry {
     this.normals = opts.normals ?? null;
     this.uvs = opts.uvs ?? null;
     this.indices = opts.indices ?? null;
+    this.joints = opts.joints ?? null;
+    this.weights = opts.weights ?? null;
   }
 
   get hasNormals(): boolean {
@@ -37,6 +43,14 @@ export class Geometry {
 
   get hasUVs(): boolean {
     return this.uvs !== null;
+  }
+
+  get hasJoints(): boolean {
+    return this.joints !== null;
+  }
+
+  get hasWeights(): boolean {
+    return this.weights !== null;
   }
 }
 

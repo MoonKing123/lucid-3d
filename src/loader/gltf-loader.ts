@@ -7,8 +7,12 @@
 import { Node3D } from '../core/node3d';
 import { Geometry } from '../renderer/geometry';
 import { Mesh } from '../renderer/mesh';
+import { SkinnedMesh } from '../renderer/skinned-mesh';
 import { Material } from '../renderer/material';
 import { vec3 } from '../math/vec3';
+import { Skeleton, type BoneData } from '../animation/skeleton';
+import { AnimationClip } from '../animation/animation-clip';
+import { KeyframeTrack, type TargetPath } from '../animation/keyframe-track';
 
 // ── 类型定义 ──────────────────────────────────────────────────────
 
@@ -22,11 +26,30 @@ export interface GltfJson {
   nodes?: Array<{
     name?: string;
     mesh?: number;
+    skin?: number;
     children?: number[];
     translation?: [number, number, number];
     rotation?: [number, number, number, number];
     scale?: [number, number, number];
     matrix?: number[];
+  }>;
+  skins?: Array<{
+    name?: string;
+    joints: number[];
+    inverseBindMatrices?: number;
+    skeleton?: number;
+  }>;
+  animations?: Array<{
+    name?: string;
+    channels: Array<{
+      sampler: number;
+      target: { node: number; path: string };
+    }>;
+    samplers: Array<{
+      input: number;
+      output: number;
+      interpolation?: string;
+    }>;
   }>;
   meshes?: Array<{
     name?: string;
@@ -69,6 +92,10 @@ export interface GltfAsset {
   scene: Node3D;
   /** 所有从网格图元创建的 Geometry 对象。 */
   geometries: Geometry[];
+  /** 从 skins 解析出的 Skeleton 对象列表（无 skins 时为空数组）。 */
+  skeletons: Skeleton[];
+  /** 从 animations 解析出的 AnimationClip 对象列表（无 animations 时为空数组）。 */
+  animations: AnimationClip[];
 }
 
 // ── componentType 常量 ────────────────────────────────────────────
@@ -151,6 +178,12 @@ export function parseGltf(
 
   const buffers = resolveBuffers(json, externalBuffers);
 
+  // 解析 skins → Skeleton[]
+  const skeletons = parseSkins(json, buffers);
+
+  // 构建节点索引 → 骨骼索引的全局映射（用于 animation track 映射）
+  const nodeToSkinBoneIndex = buildNodeToBoneIndexMap(json);
+
   const sceneIdx = json.scene ?? 0;
   const sceneDef = json.scenes?.[sceneIdx];
   const sceneRoot = new Node3D(sceneDef?.name ?? '');
@@ -159,11 +192,14 @@ export function parseGltf(
   const nodeList = json.nodes ?? [];
 
   for (const nodeIdx of (sceneDef?.nodes ?? [])) {
-    const child = buildNode(json, nodeIdx, nodeList, buffers, geometries);
+    const child = buildNode(json, nodeIdx, nodeList, buffers, geometries, skeletons);
     sceneRoot.addChild(child);
   }
 
-  return { scene: sceneRoot, geometries };
+  // 解析 animations → AnimationClip[]
+  const animations = parseAnimations(json, buffers, nodeToSkinBoneIndex);
+
+  return { scene: sceneRoot, geometries, skeletons, animations };
 }
 
 // ── 内部辅助函数 ──────────────────────────────────────────────────
@@ -185,13 +221,14 @@ function resolveBuffers(
   });
 }
 
-/** 递归构建节点，有 mesh 引用的返回 Mesh，否则返回 Node3D。 */
+/** 递归构建节点，有 mesh 引用的返回 Mesh/SkinnedMesh，否则返回 Node3D。 */
 function buildNode(
   json: GltfJson,
   nodeIdx: number,
   nodeList: NonNullable<GltfJson['nodes']>,
   buffers: ArrayBuffer[],
   geometries: Geometry[],
+  skeletons: Skeleton[],
 ): Node3D {
   const def = nodeList[nodeIdx];
   let node: Node3D;
@@ -203,8 +240,12 @@ function buildNode(
       buildPrimitive(json, prim, buffers),
     );
     geometries.push(...primGeos);
-    // Mesh 节点使用第一个图元的 Geometry
-    node = new Mesh(primGeos[0], new Material(), def.name ?? '');
+    // 有 skin 引用 → SkinnedMesh；否则普通 Mesh
+    if (def.skin !== undefined && skeletons[def.skin]) {
+      node = new SkinnedMesh(primGeos[0], new Material(), skeletons[def.skin], def.name ?? '');
+    } else {
+      node = new Mesh(primGeos[0], new Material(), def.name ?? '');
+    }
   } else {
     node = new Node3D(def.name ?? '');
   }
@@ -219,7 +260,7 @@ function buildNode(
 
   // 递归构建子节点
   for (const childIdx of (def.children ?? [])) {
-    const child = buildNode(json, childIdx, nodeList, buffers, geometries);
+    const child = buildNode(json, childIdx, nodeList, buffers, geometries, skeletons);
     node.addChild(child);
   }
 
@@ -270,4 +311,75 @@ function buildPrimitive(
   }
 
   return new Geometry({ positions, colors, normals, uvs, indices });
+}
+
+/** 解析 skins → Skeleton[]。无 skins 时返回空数组。 */
+function parseSkins(json: GltfJson, buffers: ArrayBuffer[]): Skeleton[] {
+  if (!json.skins) return [];
+  const nodeList = json.nodes ?? [];
+
+  return json.skins.map((skin) => {
+    const bones: BoneData[] = skin.joints.map((nodeIdx) => ({
+      name: nodeList[nodeIdx]?.name ?? `bone_${nodeIdx}`,
+      parentIndex: -1,
+    }));
+
+    let ibm: Float32Array;
+    if (skin.inverseBindMatrices !== undefined) {
+      ibm = new Float32Array(readAccessor(json, skin.inverseBindMatrices, buffers) as Float32Array);
+    } else {
+      // 无 IBM accessor：每块骨骼使用单位矩阵
+      ibm = new Float32Array(bones.length * 16);
+      for (let i = 0; i < bones.length; i++) {
+        ibm[i * 16]      = 1; ibm[i * 16 + 5]  = 1;
+        ibm[i * 16 + 10] = 1; ibm[i * 16 + 15] = 1;
+      }
+    }
+
+    return new Skeleton(bones, ibm);
+  });
+}
+
+/** 构建 glTF node 索引 → 骨骼索引的全局映射（跨所有 skins）。 */
+function buildNodeToBoneIndexMap(json: GltfJson): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const skin of (json.skins ?? [])) {
+    skin.joints.forEach((nodeIdx, boneIdx) => {
+      map.set(nodeIdx, boneIdx);
+    });
+  }
+  return map;
+}
+
+/** 解析 animations → AnimationClip[]。无 animations 时返回空数组。 */
+function parseAnimations(
+  json: GltfJson,
+  buffers: ArrayBuffer[],
+  nodeToSkinBoneIndex: Map<number, number>,
+): AnimationClip[] {
+  if (!json.animations) return [];
+
+  return json.animations.map((anim) => {
+    const tracks: KeyframeTrack[] = [];
+
+    for (const channel of anim.channels) {
+      const samplerDef = anim.samplers[channel.sampler];
+      const jointIndex = nodeToSkinBoneIndex.get(channel.target.node);
+      if (jointIndex === undefined) continue;
+
+      const times = new Float32Array(readAccessor(json, samplerDef.input, buffers) as Float32Array);
+      const values = new Float32Array(readAccessor(json, samplerDef.output, buffers) as Float32Array);
+      const interpolation = (samplerDef.interpolation === 'STEP' ? 'STEP' : 'LINEAR') as 'LINEAR' | 'STEP';
+
+      tracks.push(new KeyframeTrack({
+        targetPath: channel.target.path as TargetPath,
+        jointIndex,
+        times,
+        values,
+        interpolation,
+      }));
+    }
+
+    return new AnimationClip(anim.name ?? '', tracks);
+  });
 }

@@ -43,5 +43,10 @@
     "name": "bitmap-text",
     "page": "/bitmap-text-demo.html",
     "description": "黑色背景上显示白色文字 'HELLO' 居中偏上，下方一行黄色文字 'SCORE: 100' 左对齐。文字清晰可辨，字符间距均匀。"
+  },
+  {
+    "name": "skinned-mesh",
+    "page": "/skinned-mesh-demo.html",
+    "description": "深灰色背景，一个四边形网格：蓝色下半部分保持不动，橙色上半部分绑定到 bone 1 并向右旋转 45°，使上半部分顶点向右弯曲。"
   }
 ]
