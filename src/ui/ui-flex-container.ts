@@ -5,8 +5,6 @@
  * @see test/unit/ui/ui-flex-container.test.ts
  */
 
-export const __STUB__ = true;
-
 import { UIElement, type UIElementOptions } from './ui-element';
 
 export interface UIFlexContainerOptions extends UIElementOptions {
@@ -20,12 +18,35 @@ export class UIFlexContainer extends UIElement {
   gap: number;
   padding: number;
 
-  constructor(_options?: UIFlexContainerOptions) {
-    super();
-    throw new Error('STUB');
+  constructor(options?: UIFlexContainerOptions) {
+    super(options);
+    this.direction = options?.direction ?? 'horizontal';
+    this.gap = options?.gap ?? 0;
+    this.padding = options?.padding ?? 0;
   }
 
-  layout(): void { throw new Error('STUB'); }
-  override add(_child: UIElement): void { throw new Error('STUB'); }
-  override remove(_child: UIElement): void { throw new Error('STUB'); }
+  layout(): void {
+    let cursor = this.padding;
+    for (const child of this.children) {
+      if (this.direction === 'horizontal') {
+        child.x = this.x + cursor;
+        child.y = this.y + this.padding;
+        cursor += child.width + this.gap;
+      } else {
+        child.x = this.x + this.padding;
+        child.y = this.y + cursor;
+        cursor += child.height + this.gap;
+      }
+    }
+  }
+
+  override add(child: UIElement): void {
+    super.add(child);
+    this.layout();
+  }
+
+  override remove(child: UIElement): void {
+    super.remove(child);
+    this.layout();
+  }
 }
