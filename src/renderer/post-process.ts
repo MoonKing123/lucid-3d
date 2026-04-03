@@ -1,0 +1,369 @@
+/**
+ * PostProcessor — 后处理管线。
+ * 基于 ping-pong FBO 实现多 pass 效果链，内置灰度、模糊、泛光三种效果。
+ * @see test/unit/renderer/post-process.test.ts
+ */
+
+/* ── EffectPass 接口 ── */
+
+export interface EffectPass {
+  /** pass 唯一名称 */
+  readonly name: string;
+  /** 是否启用 */
+  enabled: boolean;
+  /** 返回此 pass 的片元着色器 GLSL 源码 */
+  getFragmentShader(): string;
+  /** 设置 pass 特有的 uniform（在 render 前由 PostProcessor 调用） */
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void;
+}
+
+/* ── 全屏四边形顶点着色器 ── */
+
+const FULLSCREEN_VERT = `
+attribute vec2 a_position;
+attribute vec2 a_texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+  v_texCoord = a_texCoord;
+}
+`.trim();
+
+/* ── PostProcessor ── */
+
+export class PostProcessor {
+  /** 当前注册的 pass 列表（按添加顺序执行） */
+  readonly passes: EffectPass[] = [];
+
+  private _width = 0;
+  private _height = 0;
+
+  // ping-pong 双缓冲 FBO
+  private _fbos: (WebGLFramebuffer | null)[] = [null, null];
+  private _textures: (WebGLTexture | null)[] = [null, null];
+  // 全屏四边形 VBO
+  private _vbo: WebGLBuffer | null = null;
+
+  get width(): number { return this._width; }
+  get height(): number { return this._height; }
+
+  /** 添加一个 pass（可链式调用） */
+  addPass(pass: EffectPass): this {
+    this.passes.push(pass);
+    return this;
+  }
+
+  /** 按名称移除 pass（不存在时静默，可链式调用） */
+  removePass(name: string): this {
+    const idx = this.passes.findIndex(p => p.name === name);
+    if (idx !== -1) this.passes.splice(idx, 1);
+    return this;
+  }
+
+  /**
+   * 初始化内部 FBO 和全屏四边形。
+   * 必须在首次 render 前调用。
+   */
+  initialize(gl: WebGLRenderingContext, width: number, height: number): void {
+    this._width = width;
+    this._height = height;
+    if (typeof gl.createFramebuffer !== 'function') return;
+    this._setupFBOs(gl, width, height);
+    this._setupQuad(gl);
+  }
+
+  /**
+   * 依次执行所有 enabled 的 pass，从 inputTexture 读取，最终输出到默认 framebuffer。
+   */
+  render(gl: WebGLRenderingContext, inputTexture: WebGLTexture): void {
+    if (typeof gl.createFramebuffer !== 'function') return;
+    const enabledPasses = this.passes.filter(p => p.enabled);
+    if (enabledPasses.length === 0) return;
+
+    let srcTex = inputTexture;
+    const lastIdx = enabledPasses.length - 1;
+
+    for (let i = 0; i < enabledPasses.length; i++) {
+      const pass = enabledPasses[i];
+      const isLast = i === lastIdx;
+      const dstFbo = isLast ? null : this._fbos[i % 2];
+      const dstTex = isLast ? null : this._textures[i % 2];
+
+      // 绑定目标 framebuffer（最后一个 pass 输出到屏幕）
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dstFbo);
+      if (!isLast) {
+        gl.viewport(0, 0, this._width, this._height);
+      }
+
+      // 编译 / 获取 shader program
+      const prog = this._getOrCreateProgram(gl, pass);
+      if (!prog) continue;
+      gl.useProgram(prog);
+
+      // 绑定输入纹理
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, srcTex);
+      const uTex = gl.getUniformLocation(prog, 'u_texture');
+      if (uTex) gl.uniform1i(uTex, 0);
+
+      // 设置纹素尺寸（供 blur/bloom 使用）
+      const uTexelSize = gl.getUniformLocation(prog, 'u_texelSize');
+      if (uTexelSize) {
+        gl.uniform2f(uTexelSize, 1.0 / this._width, 1.0 / this._height);
+      }
+
+      // 由 pass 设置自定义 uniform
+      pass.setUniforms(gl, prog);
+
+      // 绘制全屏四边形
+      this._drawQuad(gl, prog);
+
+      // 下一个 pass 的输入是本次的输出纹理
+      if (!isLast && dstTex) {
+        srcTex = dstTex;
+      }
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /** 调整内部 FBO 尺寸 */
+  resize(gl: WebGLRenderingContext, width: number, height: number): void {
+    this._width = width;
+    this._height = height;
+    if (typeof gl.deleteFramebuffer !== 'function') return;
+    this._cleanupFBOs(gl);
+    this._setupFBOs(gl, width, height);
+  }
+
+  /** 释放所有 GPU 资源 */
+  dispose(gl: WebGLRenderingContext): void {
+    if (typeof gl.deleteFramebuffer === 'function') {
+      this._cleanupFBOs(gl);
+    }
+    if (this._vbo && typeof gl.deleteBuffer === 'function') {
+      gl.deleteBuffer(this._vbo);
+      this._vbo = null;
+    }
+  }
+
+  // ── 私有辅助 ──
+
+  private _programCache = new Map<string, WebGLProgram>();
+
+  private _getOrCreateProgram(gl: WebGLRenderingContext, pass: EffectPass): WebGLProgram | null {
+    if (this._programCache.has(pass.name)) {
+      return this._programCache.get(pass.name)!;
+    }
+    const prog = this._compileProgram(gl, FULLSCREEN_VERT, pass.getFragmentShader());
+    if (prog) this._programCache.set(pass.name, prog);
+    return prog;
+  }
+
+  private _compileProgram(gl: WebGLRenderingContext, vert: string, frag: string): WebGLProgram | null {
+    const vs = this._compileShader(gl, gl.VERTEX_SHADER, vert);
+    const fs = this._compileShader(gl, gl.FRAGMENT_SHADER, frag);
+    if (!vs || !fs) return null;
+    const prog = gl.createProgram();
+    if (!prog) return null;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    return prog;
+  }
+
+  private _compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
+    const shader = gl.createShader(type);
+    if (!shader) return null;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  }
+
+  private _setupFBOs(gl: WebGLRenderingContext, width: number, height: number): void {
+    for (let i = 0; i < 2; i++) {
+      const fbo = gl.createFramebuffer();
+      const tex = gl.createTexture();
+      if (!fbo || !tex) continue;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      this._fbos[i] = fbo;
+      this._textures[i] = tex;
+    }
+  }
+
+  private _cleanupFBOs(gl: WebGLRenderingContext): void {
+    for (let i = 0; i < 2; i++) {
+      if (this._fbos[i]) { gl.deleteFramebuffer(this._fbos[i]); this._fbos[i] = null; }
+      if (this._textures[i]) { gl.deleteTexture(this._textures[i]); this._textures[i] = null; }
+    }
+  }
+
+  private _setupQuad(gl: WebGLRenderingContext): void {
+    if (typeof gl.createBuffer !== 'function') return;
+    // 全屏四边形：2 个三角形，覆盖 NDC [-1,1]^2
+    // layout: position(x,y), texCoord(u,v)
+    const data = new Float32Array([
+      -1, -1,  0, 0,
+       1, -1,  1, 0,
+      -1,  1,  0, 1,
+       1, -1,  1, 0,
+       1,  1,  1, 1,
+      -1,  1,  0, 1,
+    ]);
+    const buf = gl.createBuffer();
+    if (!buf) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    this._vbo = buf;
+  }
+
+  private _drawQuad(gl: WebGLRenderingContext, prog: WebGLProgram): void {
+    if (!this._vbo) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._vbo);
+    const STRIDE = 4 * 4; // 4 floats * 4 bytes
+    const aPos = gl.getAttribLocation(prog, 'a_position');
+    const aTex = gl.getAttribLocation(prog, 'a_texCoord');
+    if (aPos >= 0) {
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE, 0);
+    }
+    if (aTex >= 0) {
+      gl.enableVertexAttribArray(aTex);
+      gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, STRIDE, 2 * 4);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  }
+}
+
+/* ── 内置 EffectPass 实现 ── */
+
+/** 灰度化效果：使用亮度公式 dot(rgb, vec3(0.299, 0.587, 0.114)) */
+export class GrayscalePass implements EffectPass {
+  readonly name = 'grayscale';
+  enabled = true;
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+  gl_FragColor = vec4(vec3(gray), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(_gl: WebGLRenderingContext, _program: WebGLProgram): void {
+    // 灰度化无额外 uniform
+  }
+}
+
+/** 高斯模糊效果：5-tap 高斯核双向采样 */
+export class BlurPass implements EffectPass {
+  readonly name = 'blur';
+  enabled = true;
+  /** 模糊半径（像素），默认 2.0 */
+  radius: number;
+
+  constructor(radius = 2.0) {
+    this.radius = radius;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_radius;
+uniform vec2 u_texelSize;
+varying vec2 v_texCoord;
+void main() {
+  vec2 off = u_texelSize * u_radius;
+  vec4 sum = vec4(0.0);
+  // 水平 5-tap 高斯核
+  sum += texture2D(u_texture, v_texCoord + vec2(-2.0 * off.x, 0.0)) * 0.0625;
+  sum += texture2D(u_texture, v_texCoord + vec2(-1.0 * off.x, 0.0)) * 0.25;
+  sum += texture2D(u_texture, v_texCoord) * 0.375;
+  sum += texture2D(u_texture, v_texCoord + vec2(1.0 * off.x, 0.0)) * 0.25;
+  sum += texture2D(u_texture, v_texCoord + vec2(2.0 * off.x, 0.0)) * 0.0625;
+  // 垂直 5-tap 高斯核
+  sum += texture2D(u_texture, v_texCoord + vec2(0.0, -2.0 * off.y)) * 0.0625;
+  sum += texture2D(u_texture, v_texCoord + vec2(0.0, -1.0 * off.y)) * 0.25;
+  sum += texture2D(u_texture, v_texCoord + vec2(0.0,  1.0 * off.y)) * 0.25;
+  sum += texture2D(u_texture, v_texCoord + vec2(0.0,  2.0 * off.y)) * 0.0625;
+  gl_FragColor = sum / 2.0;
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uRadius = gl.getUniformLocation(program, 'u_radius');
+    if (uRadius) gl.uniform1f(uRadius, this.radius);
+  }
+}
+
+/** 泛光效果：亮度阈值提取 → 模糊 → 与原图叠加 */
+export class BloomPass implements EffectPass {
+  readonly name = 'bloom';
+  enabled = true;
+  /** 亮度提取阈值，默认 0.8 */
+  threshold: number;
+  /** 泛光强度，默认 1.0 */
+  intensity: number;
+
+  constructor(threshold = 0.8, intensity = 1.0) {
+    this.threshold = threshold;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_threshold;
+uniform float u_intensity;
+uniform vec2 u_texelSize;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  float brightness = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+  // 阈值提取高亮区域（smoothstep 柔化边界）
+  float factor = smoothstep(u_threshold - 0.05, u_threshold + 0.05, brightness);
+  // 对高亮区域进行简单 blur 叠加
+  vec2 off = u_texelSize * 2.0;
+  vec4 bloom = color * factor;
+  bloom += texture2D(u_texture, v_texCoord + vec2( off.x,  0.0)) * factor;
+  bloom += texture2D(u_texture, v_texCoord + vec2(-off.x,  0.0)) * factor;
+  bloom += texture2D(u_texture, v_texCoord + vec2( 0.0,  off.y)) * factor;
+  bloom += texture2D(u_texture, v_texCoord + vec2( 0.0, -off.y)) * factor;
+  bloom /= 5.0;
+  gl_FragColor = color + bloom * u_intensity;
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uThreshold = gl.getUniformLocation(program, 'u_threshold');
+    if (uThreshold) gl.uniform1f(uThreshold, this.threshold);
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
