@@ -5,8 +5,6 @@
  * API 参考 Three.js InstancedMesh，但简化为仅支持 per-instance 变换和颜色。
  * @see test/unit/renderer/instanced-mesh.test.ts
  */
-export const __STUB__ = true;
-
 import { Mesh } from './mesh';
 import { Geometry } from './geometry';
 import { Material } from './material';
@@ -48,7 +46,7 @@ export class InstancedMesh extends Mesh {
     if (index < 0 || index >= this.count) {
       throw new RangeError(`Instance index ${index} out of range [0, ${this.count})`);
     }
-    return Array.from(this.instanceMatrix.slice(index * 16, index * 16 + 16)) as unknown as Mat4;
+    return this.instanceMatrix.slice(index * 16, index * 16 + 16);
   }
 
   /** 设置第 index 个实例的颜色。首次调用会自动分配 instanceColor 数组。 */
