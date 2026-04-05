@@ -5,9 +5,7 @@
  * @see test/unit/core/touch-gesture.test.ts
  */
 
-export const __STUB__ = true;
-
-import type { InputManager } from './input';
+import type { InputManager, InputEventData } from './input';
 
 export interface SwipeEvent {
   direction: 'left' | 'right' | 'up' | 'down';
@@ -54,19 +52,131 @@ export type TapCallback = (e: TapEvent) => void;
 export type LongPressCallback = (e: LongPressEvent) => void;
 
 export class TouchGesture {
-  constructor(_input: InputManager, _options?: TouchGestureOptions) {
-    // stub
+  private input: InputManager;
+  private opts: Required<TouchGestureOptions>;
+
+  private swipeCallbacks = new Set<SwipeCallback>();
+  private tapCallbacks = new Set<TapCallback>();
+  private doubleTapCallbacks = new Set<TapCallback>();
+  private longPressCallbacks = new Set<LongPressCallback>();
+
+  private startX = 0;
+  private startY = 0;
+  private startNdcX = 0;
+  private startNdcY = 0;
+  private startTime = 0;
+  private longPressTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastTapTime: number | null = null;
+
+  private readonly handleDown: (e: InputEventData) => void;
+  private readonly handleMove: (e: InputEventData) => void;
+  private readonly handleUp: (e: InputEventData) => void;
+
+  constructor(input: InputManager, options?: TouchGestureOptions) {
+    this.input = input;
+    this.opts = {
+      swipeThreshold: options?.swipeThreshold ?? 50,
+      swipeVelocityThreshold: options?.swipeVelocityThreshold ?? 200,
+      tapMaxDuration: options?.tapMaxDuration ?? 300,
+      tapMaxDistance: options?.tapMaxDistance ?? 10,
+      longPressDelay: options?.longPressDelay ?? 500,
+      doubleTapInterval: options?.doubleTapInterval ?? 300,
+    };
+
+    this.handleDown = (e) => {
+      this.startX = e.x!;
+      this.startY = e.y!;
+      this.startNdcX = e.ndcX!;
+      this.startNdcY = e.ndcY!;
+      this.startTime = Date.now();
+      this.clearLongPressTimer();
+      this.longPressTimer = setTimeout(() => {
+        const duration = Date.now() - this.startTime;
+        for (const cb of this.longPressCallbacks) {
+          cb({ x: this.startX, y: this.startY, ndcX: this.startNdcX, ndcY: this.startNdcY, duration });
+        }
+      }, this.opts.longPressDelay);
+    };
+
+    this.handleMove = (_e) => {
+      this.clearLongPressTimer();
+    };
+
+    this.handleUp = (e) => {
+      this.clearLongPressTimer();
+
+      const endX = e.x!;
+      const endY = e.y!;
+      const duration = Date.now() - this.startTime;
+
+      const dx = endX - this.startX;
+      const dy = endY - this.startY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const velocity = duration > 0 ? distance / (duration / 1000) : Infinity;
+
+      // 滑动检测：距离和速度都超过阈值
+      if (distance > this.opts.swipeThreshold && velocity > this.opts.swipeVelocityThreshold) {
+        let direction: SwipeEvent['direction'];
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          direction = dx > 0 ? 'right' : 'left';
+        } else {
+          direction = dy > 0 ? 'down' : 'up';
+        }
+        for (const cb of this.swipeCallbacks) {
+          cb({ direction, distance, velocity, startX: this.startX, startY: this.startY, endX, endY });
+        }
+        return;
+      }
+
+      // 点击检测：移动距离和持续时间都在阈值内
+      if (distance < this.opts.tapMaxDistance && duration < this.opts.tapMaxDuration) {
+        const now = Date.now();
+        if (this.lastTapTime !== null && now - this.lastTapTime < this.opts.doubleTapInterval) {
+          // 双击
+          this.lastTapTime = null;
+          for (const cb of this.doubleTapCallbacks) {
+            cb({ x: endX, y: endY, ndcX: e.ndcX!, ndcY: e.ndcY! });
+          }
+        } else {
+          // 单击
+          this.lastTapTime = now;
+          for (const cb of this.tapCallbacks) {
+            cb({ x: endX, y: endY, ndcX: e.ndcX!, ndcY: e.ndcY! });
+          }
+        }
+      }
+    };
+
+    this.input.on('pointerdown', this.handleDown);
+    this.input.on('pointermove', this.handleMove);
+    this.input.on('pointerup', this.handleUp);
   }
 
-  onSwipe(_callback: SwipeCallback): void { /* stub */ }
-  onTap(_callback: TapCallback): void { /* stub */ }
-  onDoubleTap(_callback: TapCallback): void { /* stub */ }
-  onLongPress(_callback: LongPressCallback): void { /* stub */ }
+  private clearLongPressTimer(): void {
+    if (this.longPressTimer !== undefined) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = undefined;
+    }
+  }
 
-  offSwipe(_callback: SwipeCallback): void { /* stub */ }
-  offTap(_callback: TapCallback): void { /* stub */ }
-  offDoubleTap(_callback: TapCallback): void { /* stub */ }
-  offLongPress(_callback: LongPressCallback): void { /* stub */ }
+  onSwipe(callback: SwipeCallback): void { this.swipeCallbacks.add(callback); }
+  onTap(callback: TapCallback): void { this.tapCallbacks.add(callback); }
+  onDoubleTap(callback: TapCallback): void { this.doubleTapCallbacks.add(callback); }
+  onLongPress(callback: LongPressCallback): void { this.longPressCallbacks.add(callback); }
 
-  dispose(): void { /* stub */ }
+  offSwipe(callback: SwipeCallback): void { this.swipeCallbacks.delete(callback); }
+  offTap(callback: TapCallback): void { this.tapCallbacks.delete(callback); }
+  offDoubleTap(callback: TapCallback): void { this.doubleTapCallbacks.delete(callback); }
+  offLongPress(callback: LongPressCallback): void { this.longPressCallbacks.delete(callback); }
+
+  dispose(): void {
+    this.clearLongPressTimer();
+    this.input.off('pointerdown', this.handleDown);
+    this.input.off('pointermove', this.handleMove);
+    this.input.off('pointerup', this.handleUp);
+    this.swipeCallbacks.clear();
+    this.tapCallbacks.clear();
+    this.doubleTapCallbacks.clear();
+    this.longPressCallbacks.clear();
+  }
 }
