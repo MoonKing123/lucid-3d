@@ -31,6 +31,8 @@ interface PhongLocations {
   uDiffuse: WebGLUniformLocation | null;
   uSpecular: WebGLUniformLocation | null;
   uShininess: WebGLUniformLocation | null;
+  uMap: WebGLUniformLocation | null;
+  uHasMap: WebGLUniformLocation | null;
 }
 
 interface CompiledProgram {
@@ -278,6 +280,8 @@ export class WebGLRenderer {
         uDiffuse:      gl.getUniformLocation(program, 'u_diffuse'),
         uSpecular:     gl.getUniformLocation(program, 'u_specular'),
         uShininess:    gl.getUniformLocation(program, 'u_shininess'),
+        uMap:          gl.getUniformLocation(program, 'u_map'),
+        uHasMap:       gl.getUniformLocation(program, 'u_hasMap'),
       };
     }
 
@@ -496,6 +500,23 @@ export class WebGLRenderer {
       if (phong.uDiffuse)   gl.uniform3fv(phong.uDiffuse, mat.diffuse);
       if (phong.uSpecular)  gl.uniform3fv(phong.uSpecular, mat.specular);
       if (phong.uShininess) gl.uniform1f(phong.uShininess, mat.shininess);
+
+      // 漫反射纹理贴图
+      if (mat.map != null) {
+        const webglTex = this._getOrUploadTexture(mat.map);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, webglTex);
+        if (phong.uMap)    gl.uniform1i(phong.uMap, 0);
+        if (phong.uHasMap) gl.uniform1f(phong.uHasMap, 1.0);
+        // 绑定 UV attribute
+        if (compiled.aUv >= 0 && uploaded.uvBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+          gl.enableVertexAttribArray(compiled.aUv);
+          gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+        }
+      } else {
+        if (phong.uHasMap) gl.uniform1f(phong.uHasMap, 0.0);
+      }
     }
 
     // Draw
