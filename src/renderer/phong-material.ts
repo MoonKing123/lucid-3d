@@ -52,6 +52,15 @@ const PHONG_FRAGMENT_SHADER = `
   uniform vec3 u_pointLightColors[4];
   uniform float u_pointLightDistances[4];
   uniform float u_pointLightDecays[4];
+  // 聚光灯数组
+  uniform int u_numSpotLights;
+  uniform vec3 u_spotLightPositions[4];
+  uniform vec3 u_spotLightDirs[4];
+  uniform vec3 u_spotLightColors[4];
+  uniform float u_spotLightDistances[4];
+  uniform float u_spotLightDecays[4];
+  uniform float u_spotLightCosAngles[4];
+  uniform float u_spotLightPenumbras[4];
   // 漫反射贴图
   uniform sampler2D u_map;
   uniform float u_hasMap;
@@ -116,6 +125,38 @@ const PHONG_FRAGMENT_SHADER = `
       }
       color += u_pointLightColors[i] * baseDiffuse * diff * attenuation;
       color += u_pointLightColors[i] * baseSpecular * spec * attenuation;
+    }
+
+    // 聚光灯循环
+    for (int i = 0; i < 4; i++) {
+      if (i >= u_numSpotLights) break;
+      vec3 lightVec = u_spotLightPositions[i] - v_worldPos;
+      float d = length(lightVec);
+      vec3 L = lightVec / max(d, 0.0001);
+      vec3 H = normalize(L + V);
+      float diff = max(dot(N, L), 0.0);
+      float spec = pow(max(dot(N, H), 0.0), u_shininess);
+      // 距离衰减
+      float dist = u_spotLightDistances[i];
+      float decay = u_spotLightDecays[i];
+      float distAttenuation;
+      if (dist <= 0.0) {
+        distAttenuation = 1.0 / max(pow(d, decay), 0.01);
+      } else {
+        distAttenuation = pow(max(1.0 - d / dist, 0.0), decay);
+      }
+      // 锥形衰减（smoothstep）
+      float cosOuter = u_spotLightCosAngles[i];
+      float penumbra = u_spotLightPenumbras[i];
+      // cosInner = cos(angle * (1.0 - penumbra))，通过 cosOuter 反推 angle 再乘 (1-penumbra)
+      // 直接用 acos 会在 GLSL 1.0 中精度不稳，改为在 CPU 端传 cosInner
+      // 这里复用 penumbra 字段存储 cosInner
+      float cosInner = penumbra; // 注：renderer 中传 cos(angle*(1-penumbra))
+      float spotEffect = dot(normalize(v_worldPos - u_spotLightPositions[i]), u_spotLightDirs[i]);
+      float spotAttenuation = smoothstep(cosOuter, cosInner, spotEffect);
+      float attenuation = distAttenuation * spotAttenuation;
+      color += u_spotLightColors[i] * baseDiffuse  * diff * attenuation;
+      color += u_spotLightColors[i] * baseSpecular * spec * attenuation;
     }
 
     vec3 emissiveColor = u_hasEmissiveMap > 0.5

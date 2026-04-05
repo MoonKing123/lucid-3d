@@ -10,6 +10,7 @@ import { Scene } from '../core/scene';
 import { Camera } from '../core/camera';
 import { AmbientLight, DirectionalLight } from '../core/light';
 import { PointLight } from '../core/point-light';
+import { SpotLight } from '../core/spot-light';
 import { Mesh } from './mesh';
 import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
@@ -49,6 +50,15 @@ interface PhongLocations {
   uPointLightColors: Array<WebGLUniformLocation | null>;
   uPointLightDistances: Array<WebGLUniformLocation | null>;
   uPointLightDecays: Array<WebGLUniformLocation | null>;
+  // 聚光灯
+  uNumSpotLights: WebGLUniformLocation | null;
+  uSpotLightPositions: Array<WebGLUniformLocation | null>;
+  uSpotLightDirs: Array<WebGLUniformLocation | null>;
+  uSpotLightColors: Array<WebGLUniformLocation | null>;
+  uSpotLightDistances: Array<WebGLUniformLocation | null>;
+  uSpotLightDecays: Array<WebGLUniformLocation | null>;
+  uSpotLightCosAngles: Array<WebGLUniformLocation | null>;
+  uSpotLightPenumbras: Array<WebGLUniformLocation | null>;
 }
 
 interface CompiledProgram {
@@ -115,6 +125,7 @@ interface SkinningProgram {
 
 const MAX_DIR_LIGHTS = 4;
 const MAX_POINT_LIGHTS = 4;
+const MAX_SPOT_LIGHTS = 4;
 
 interface DirLightData {
   dir: Vec3;
@@ -128,11 +139,22 @@ interface PointLightData {
   decay: number;
 }
 
+interface SpotLightData {
+  position: Vec3;
+  direction: Vec3;
+  color: Vec3;
+  distance: number;
+  decay: number;
+  cosAngle: number;  // cos(外锥角)
+  cosInner: number;  // cos(angle * (1 - penumbra))，用于 smoothstep
+}
+
 interface LightContext {
   ambientColor: Vec3;
   cameraPos: Vec3;
   dirLights: DirLightData[];
   pointLights: PointLightData[];
+  spotLights: SpotLightData[];
 }
 
 // ── Shader helpers ────────────────────────────────────────────────
@@ -212,6 +234,7 @@ export class WebGLRenderer {
     let ambientColor: Vec3 = vec3(0, 0, 0);
     const dirLights: DirLightData[] = [];
     const pointLights: PointLightData[] = [];
+    const spotLights: SpotLightData[] = [];
 
     const collected = scene.collectLights();
     for (const node of collected.ambient) {
@@ -249,11 +272,29 @@ export class WebGLRenderer {
       });
     }
 
+    for (const node of collected.spot) {
+      if (spotLights.length >= MAX_SPOT_LIGHTS) break;
+      spotLights.push({
+        position:  node.worldPosition,
+        direction: node.worldDirection,
+        color: vec3(
+          node.color[0] * node.intensity,
+          node.color[1] * node.intensity,
+          node.color[2] * node.intensity,
+        ),
+        distance: node.distance,
+        decay:    node.decay,
+        cosAngle: Math.cos(node.angle),
+        cosInner: Math.cos(node.angle * (1 - node.penumbra)),
+      });
+    }
+
     const lightCtx: LightContext = {
       ambientColor,
       cameraPos: camera.position,
       dirLights,
       pointLights,
+      spotLights,
     };
 
     const viewProj = camera.viewProjectionMatrix;
@@ -335,6 +376,22 @@ export class WebGLRenderer {
         ptDistances.push(gl.getUniformLocation(program, `u_pointLightDistances[${i}]`));
         ptDecays.push(gl.getUniformLocation(program, `u_pointLightDecays[${i}]`));
       }
+      const spPositions: Array<WebGLUniformLocation | null> = [];
+      const spDirs:      Array<WebGLUniformLocation | null> = [];
+      const spColors:    Array<WebGLUniformLocation | null> = [];
+      const spDistances: Array<WebGLUniformLocation | null> = [];
+      const spDecays:    Array<WebGLUniformLocation | null> = [];
+      const spCosAngles: Array<WebGLUniformLocation | null> = [];
+      const spPenumbras: Array<WebGLUniformLocation | null> = [];
+      for (let i = 0; i < MAX_SPOT_LIGHTS; i++) {
+        spPositions.push(gl.getUniformLocation(program, `u_spotLightPositions[${i}]`));
+        spDirs.push(gl.getUniformLocation(program, `u_spotLightDirs[${i}]`));
+        spColors.push(gl.getUniformLocation(program, `u_spotLightColors[${i}]`));
+        spDistances.push(gl.getUniformLocation(program, `u_spotLightDistances[${i}]`));
+        spDecays.push(gl.getUniformLocation(program, `u_spotLightDecays[${i}]`));
+        spCosAngles.push(gl.getUniformLocation(program, `u_spotLightCosAngles[${i}]`));
+        spPenumbras.push(gl.getUniformLocation(program, `u_spotLightPenumbras[${i}]`));
+      }
       compiled.phong = {
         aNormal:            gl.getAttribLocation(program, 'a_normal'),
         uModelMatrix:       gl.getUniformLocation(program, 'u_modelMatrix'),
@@ -359,6 +416,14 @@ export class WebGLRenderer {
         uPointLightColors:  ptColors,
         uPointLightDistances: ptDistances,
         uPointLightDecays:  ptDecays,
+        uNumSpotLights:     gl.getUniformLocation(program, 'u_numSpotLights'),
+        uSpotLightPositions: spPositions,
+        uSpotLightDirs:     spDirs,
+        uSpotLightColors:   spColors,
+        uSpotLightDistances: spDistances,
+        uSpotLightDecays:   spDecays,
+        uSpotLightCosAngles: spCosAngles,
+        uSpotLightPenumbras: spPenumbras,
       };
     }
 
@@ -593,6 +658,26 @@ export class WebGLRenderer {
         if (colLoc)  gl.uniform3fv(colLoc, pl.color);
         if (distLoc) gl.uniform1f(distLoc, pl.distance);
         if (decLoc)  gl.uniform1f(decLoc, pl.decay);
+      }
+
+      // 聚光灯
+      if (phong.uNumSpotLights) gl.uniform1i(phong.uNumSpotLights, lightCtx.spotLights.length);
+      for (let i = 0; i < lightCtx.spotLights.length; i++) {
+        const sl = lightCtx.spotLights[i];
+        const posLoc  = phong.uSpotLightPositions[i];
+        const dirLoc  = phong.uSpotLightDirs[i];
+        const colLoc  = phong.uSpotLightColors[i];
+        const distLoc = phong.uSpotLightDistances[i];
+        const decLoc  = phong.uSpotLightDecays[i];
+        const cosLoc  = phong.uSpotLightCosAngles[i];
+        const penLoc  = phong.uSpotLightPenumbras[i];
+        if (posLoc)  gl.uniform3fv(posLoc, sl.position);
+        if (dirLoc)  gl.uniform3fv(dirLoc, sl.direction);
+        if (colLoc)  gl.uniform3fv(colLoc, sl.color);
+        if (distLoc) gl.uniform1f(distLoc, sl.distance);
+        if (decLoc)  gl.uniform1f(decLoc, sl.decay);
+        if (cosLoc)  gl.uniform1f(cosLoc, sl.cosAngle);
+        if (penLoc)  gl.uniform1f(penLoc, sl.cosInner);
       }
 
       // 材质属性 uniforms

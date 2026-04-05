@@ -7,6 +7,7 @@ import { Node3D } from './node3d';
 import { type Vec3, vec3 } from '../math/vec3';
 import { AmbientLight, DirectionalLight } from './light';
 import { PointLight } from './point-light';
+import { SpotLight } from './spot-light';
 
 export interface FogOptions {
   color: Vec3;
@@ -23,6 +24,7 @@ export interface CollectedLights {
   ambient: AmbientLight[];
   directional: DirectionalLight[];
   point: PointLight[];
+  spot: SpotLight[];
 }
 
 export class Scene extends Node3D {
@@ -41,6 +43,7 @@ export class Scene extends Node3D {
       ambient: [],
       directional: [],
       point: [],
+      spot: [],
     };
 
     this.traverse((node) => {
@@ -48,6 +51,8 @@ export class Scene extends Node3D {
         result.ambient.push(node);
       } else if (node instanceof DirectionalLight) {
         result.directional.push(node);
+      } else if (node instanceof SpotLight) {
+        result.spot.push(node);
       } else if (node instanceof PointLight) {
         result.point.push(node);
       }
