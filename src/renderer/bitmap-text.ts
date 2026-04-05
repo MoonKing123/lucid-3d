@@ -62,6 +62,8 @@ export class BitmapTextMaterial extends Material {
       fragmentShader: BITMAP_TEXT_FRAGMENT_SHADER,
     });
     this.color = opts?.color ?? vec3(1, 1, 1);
+    // 字体渲染需要 alpha 混合（通过 effectiveBlendMode 驱动）
+    this.transparent = true;
   }
 }
 
