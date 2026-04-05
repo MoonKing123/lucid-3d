@@ -5,11 +5,9 @@
  * @see test/unit/core/follow-camera.test.ts
  */
 
-export const __STUB__ = true;
-
 import { PerspectiveCamera } from './camera';
 import type { Node3D } from './node3d';
-import { type Vec3, vec3 } from '../math/vec3';
+import { type Vec3, vec3, add, sub, scale, length, lerp } from '../math/vec3';
 
 export interface FollowCameraOptions {
   /** 相机相对目标的偏移（世界空间），默认 [0, 5, -10] */
@@ -41,13 +39,37 @@ export class FollowCamera extends PerspectiveCamera {
     this.maxDistance = options?.maxDistance ?? 100;
   }
 
-  /** 每帧更新相机位置和朝向 */
-  update(_dt: number): void {
-    // stub
+  /** 计算相对目标应用距离约束后的理想位置 */
+  private _idealPosition(): Vec3 {
+    const targetPos = this.target!.position;
+    const dir = this.offset; // offset 本身就是方向向量
+    const dist = length(dir);
+
+    if (dist > 0 && (dist < this.minDistance || dist > this.maxDistance)) {
+      const clampedDist = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
+      return add(targetPos, scale(dir, clampedDist / dist));
+    }
+
+    return add(targetPos, this.offset);
+  }
+
+  /** 每帧更新相机位置和朝向（弹簧阻尼插值） */
+  update(dt: number): void {
+    if (dt === 0 || !this.target) return;
+
+    const idealPos = this._idealPosition();
+    // 帧率无关的阻尼公式: t = 1 - damping^(dt * 60)
+    const t = 1 - Math.pow(this.damping, dt * 60);
+    this.position = lerp(this.position, idealPos, t);
+
+    this.lookAt(add(this.target.position, this.lookAtOffset));
   }
 
   /** 瞬间移动到理想位置（无阻尼） */
   snap(): void {
-    // stub
+    if (!this.target) return;
+
+    this.position = this._idealPosition();
+    this.lookAt(add(this.target.position, this.lookAtOffset));
   }
 }
