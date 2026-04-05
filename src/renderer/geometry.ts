@@ -60,6 +60,20 @@ export class Geometry {
     return this.tangents !== null;
   }
 
+  /** 深拷贝所有 buffer，返回独立的 Geometry 副本 */
+  clone(): Geometry {
+    return new Geometry({
+      positions: new Float32Array(this.positions),
+      colors:    new Float32Array(this.colors),
+      normals:   this.normals  ? new Float32Array(this.normals)  : undefined,
+      uvs:       this.uvs      ? new Float32Array(this.uvs)      : undefined,
+      indices:   this.indices  ? new Uint16Array(this.indices)   : undefined,
+      joints:    this.joints   ? new Float32Array(this.joints)   : undefined,
+      weights:   this.weights  ? new Float32Array(this.weights)  : undefined,
+      tangents:  this.tangents ? new Float32Array(this.tangents) : undefined,
+    });
+  }
+
   /**
    * Compute per-vertex tangent vectors from positions, normals, and UVs.
    * Uses Mikktspace-like algorithm. Stores result in this.tangents as vec4

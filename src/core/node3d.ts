@@ -95,4 +95,22 @@ export class Node3D {
     }
     return null;
   }
+
+  /**
+   * 克隆节点。克隆出的节点 parent 为 null（脱离原场景图）。
+   * @param recursive 默认 false — 不克隆子节点；true — 递归深克隆整棵子树
+   */
+  clone(recursive = false): Node3D {
+    const node = new Node3D(this.name);
+    node.position = vec3(this.position[0], this.position[1], this.position[2]);
+    node.rotation = vec3(this.rotation[0], this.rotation[1], this.rotation[2]);
+    node.scale    = vec3(this.scale[0],    this.scale[1],    this.scale[2]);
+    node.visible  = this.visible;
+    if (recursive) {
+      for (const child of this.children) {
+        node.addChild(child.clone(true));
+      }
+    }
+    return node;
+  }
 }

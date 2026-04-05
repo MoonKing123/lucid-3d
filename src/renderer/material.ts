@@ -38,4 +38,15 @@ export class Material {
     this.opacity      = 1;
     this.transparent  = false;
   }
+
+  /** 克隆材质（拷贝 shader source + opacity/transparent 属性） */
+  clone(): Material {
+    const m = new Material({
+      vertexShader:   this.vertexShader,
+      fragmentShader: this.fragmentShader,
+    });
+    m.opacity     = this.opacity;
+    m.transparent = this.transparent;
+    return m;
+  }
 }

@@ -39,4 +39,26 @@ export class Mesh extends Node3D {
     }
     return this._boundingBox;
   }
+
+  /**
+   * 克隆 Mesh。
+   * recursive=false: geometry 和 material 共享引用（浅克隆）
+   * recursive=true: geometry 和 material 也做 clone（深克隆）
+   */
+  override clone(recursive = false): Mesh {
+    const geo = recursive ? this._geometry.clone() : this._geometry;
+    const mat = recursive ? this.material.clone()  : this.material;
+    const m = new Mesh(geo, mat, this.name);
+    m.position = this.position.slice() as import('../math/vec3').Vec3;
+    m.rotation = this.rotation.slice() as import('../math/vec3').Vec3;
+    m.scale    = this.scale.slice()    as import('../math/vec3').Vec3;
+    m.visible  = this.visible;
+    m.frustumCulled = this.frustumCulled;
+    if (recursive) {
+      for (const child of this.children) {
+        m.addChild(child.clone(true));
+      }
+    }
+    return m;
+  }
 }
