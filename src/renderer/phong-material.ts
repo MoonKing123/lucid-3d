@@ -11,18 +11,23 @@ const PHONG_VERTEX_SHADER = `
   attribute vec3 a_position;
   attribute vec3 a_normal;
   attribute vec2 a_uv;
+  attribute vec4 a_tangent;
   uniform mat4 u_mvp;
   uniform mat4 u_modelMatrix;
   uniform mat3 u_normalMatrix;
   varying vec3 v_normal;
   varying vec3 v_worldPos;
   varying vec2 v_uv;
+  varying vec3 v_tangent;
+  varying vec3 v_bitangent;
 
   void main() {
     vec4 worldPos = u_modelMatrix * vec4(a_position, 1.0);
     v_worldPos = worldPos.xyz;
     v_normal = u_normalMatrix * a_normal;
     v_uv = a_uv;
+    v_tangent = u_normalMatrix * a_tangent.xyz;
+    v_bitangent = cross(v_normal, v_tangent) * a_tangent.w;
     gl_Position = u_mvp * vec4(a_position, 1.0);
   }
 `;
@@ -54,9 +59,18 @@ const PHONG_FRAGMENT_SHADER = `
   uniform vec3 u_emissive;
   uniform sampler2D u_emissiveMap;
   uniform float u_hasEmissiveMap;
+  // 法线贴图
+  uniform sampler2D u_normalMap;
+  uniform float u_hasNormalMap;
+  uniform float u_normalScale;
+  // 高光贴图
+  uniform sampler2D u_specularMap;
+  uniform float u_hasSpecularMap;
   varying vec3 v_normal;
   varying vec3 v_worldPos;
   varying vec2 v_uv;
+  varying vec3 v_tangent;
+  varying vec3 v_bitangent;
 
   void main() {
     vec3 N = normalize(v_normal);
@@ -91,6 +105,9 @@ export interface PhongMaterialOptions {
   map?: Texture;
   emissive?: Vec3;
   emissiveMap?: Texture;
+  normalMap?: Texture;
+  normalScale?: number;
+  specularMap?: Texture;
 }
 
 export class PhongMaterial extends Material {
@@ -101,6 +118,9 @@ export class PhongMaterial extends Material {
   map: Texture | null;
   emissive: Vec3;
   emissiveMap: Texture | null;
+  normalMap: Texture | null;
+  normalScale: number;
+  specularMap: Texture | null;
 
   constructor(opts: PhongMaterialOptions = {}) {
     super({
@@ -114,5 +134,8 @@ export class PhongMaterial extends Material {
     this.map          = opts.map          ?? null;
     this.emissive     = opts.emissive     ?? vec3(0, 0, 0);
     this.emissiveMap  = opts.emissiveMap  ?? null;
+    this.normalMap    = opts.normalMap    ?? null;
+    this.normalScale  = opts.normalScale  ?? 1.0;
+    this.specularMap  = opts.specularMap  ?? null;
   }
 }

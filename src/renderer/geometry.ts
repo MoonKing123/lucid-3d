@@ -12,6 +12,7 @@ export class Geometry {
   indices: Uint16Array | null;
   joints: Float32Array | null;   // 4 per vertex (bone indices)
   weights: Float32Array | null;  // 4 per vertex (blend weights)
+  tangents: Float32Array | null; // vec4 per vertex (xyz=tangent, w=handedness)
 
   constructor(opts: {
     positions: Float32Array;
@@ -21,6 +22,7 @@ export class Geometry {
     indices?: Uint16Array;
     joints?: Float32Array;
     weights?: Float32Array;
+    tangents?: Float32Array;
   }) {
     this.positions = opts.positions;
     const vertexCount = opts.positions.length / 3;
@@ -35,6 +37,7 @@ export class Geometry {
     this.indices = opts.indices ?? null;
     this.joints = opts.joints ?? null;
     this.weights = opts.weights ?? null;
+    this.tangents = opts.tangents ?? null;
   }
 
   get hasNormals(): boolean {
@@ -51,6 +54,23 @@ export class Geometry {
 
   get hasWeights(): boolean {
     return this.weights !== null;
+  }
+
+  get hasTangents(): boolean {
+    return this.tangents !== null;
+  }
+
+  /**
+   * Compute per-vertex tangent vectors from positions, normals, and UVs.
+   * Uses Mikktspace-like algorithm. Stores result in this.tangents as vec4
+   * (xyz = tangent direction, w = handedness ±1).
+   * @throws if normals or uvs are null
+   */
+  computeTangents(): void {
+    if (!this.normals) throw new Error('computeTangents requires normals');
+    if (!this.uvs) throw new Error('computeTangents requires uvs');
+    // TODO: implement tangent computation (Phase 23 KR1)
+    throw new Error('computeTangents not yet implemented');
   }
 }
 
