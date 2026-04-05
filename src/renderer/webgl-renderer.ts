@@ -3,8 +3,10 @@
  * Uses WebGL 1.0 for maximum compatibility (WeChat mini-games).
  */
 
-import { type Mat4, multiply, normalMatrix as computeNormalMatrix } from '../math/mat4';
+import { type Mat4, multiply, normalMatrix as computeNormalMatrix, transformPoint } from '../math/mat4';
 import { type Vec3, vec3 } from '../math/vec3';
+import { Frustum } from '../math/frustum';
+import { buildRenderQueue, type QueueItem } from './render-queue';
 import { Node3D } from '../core/node3d';
 import { Scene } from '../core/scene';
 import { Camera } from '../core/camera';
@@ -231,6 +233,64 @@ function extractMat3(m: Mat4): Float32Array {
   ]);
 }
 
+// ── 视锥剔除 / 渲染队列辅助 ──────────────────────────────────────
+
+interface MeshRenderItem extends QueueItem {
+  mesh: Mesh;
+}
+
+/**
+ * 视锥体与世界 AABB 相交测试（跳过近裁面，由 GPU 硬件处理）。
+ * 近裁面剔除会错误地剔除贴近相机的物体，其他 5 个面已足够。
+ */
+function intersectsAABBExcludeNear(
+  frustum: Frustum,
+  aabb: { min: Vec3; max: Vec3 },
+): boolean {
+  for (let i = 0; i < frustum.planes.length; i++) {
+    if (i === 4) continue; // 跳过近裁面（planes[4]）
+    const plane = frustum.planes[i];
+    const px = plane.normal[0] >= 0 ? aabb.max[0] : aabb.min[0];
+    const py = plane.normal[1] >= 0 ? aabb.max[1] : aabb.min[1];
+    const pz = plane.normal[2] >= 0 ? aabb.max[2] : aabb.min[2];
+    const d = plane.normal[0] * px + plane.normal[1] * py + plane.normal[2] * pz + plane.constant;
+    if (d < 0) return false;
+  }
+  return true;
+}
+
+/** 将 Mesh 的 boundingBox 变换到世界空间，返回世界 AABB */
+function computeWorldAABB(mesh: Mesh): { min: Vec3; max: Vec3 } {
+  const bb = mesh.boundingBox;
+  const wm = mesh.worldMatrix;
+  const corners: Vec3[] = [
+    transformPoint(wm, vec3(bb.min[0], bb.min[1], bb.min[2])),
+    transformPoint(wm, vec3(bb.max[0], bb.min[1], bb.min[2])),
+    transformPoint(wm, vec3(bb.min[0], bb.max[1], bb.min[2])),
+    transformPoint(wm, vec3(bb.max[0], bb.max[1], bb.min[2])),
+    transformPoint(wm, vec3(bb.min[0], bb.min[1], bb.max[2])),
+    transformPoint(wm, vec3(bb.max[0], bb.min[1], bb.max[2])),
+    transformPoint(wm, vec3(bb.min[0], bb.max[1], bb.max[2])),
+    transformPoint(wm, vec3(bb.max[0], bb.max[1], bb.max[2])),
+  ];
+  const min = vec3(Infinity, Infinity, Infinity);
+  const max = vec3(-Infinity, -Infinity, -Infinity);
+  for (const c of corners) {
+    if (c[0] < min[0]) min[0] = c[0];
+    if (c[1] < min[1]) min[1] = c[1];
+    if (c[2] < min[2]) min[2] = c[2];
+    if (c[0] > max[0]) max[0] = c[0];
+    if (c[1] > max[1]) max[1] = c[1];
+    if (c[2] > max[2]) max[2] = c[2];
+  }
+  return { min, max };
+}
+
+/** 计算 Mesh 的世界空间中心（用于深度排序） */
+function computeWorldCenter(mesh: Mesh): Vec3 {
+  return transformPoint(mesh.worldMatrix, mesh.boundingBox.center());
+}
+
 // ── WebGLRenderer ─────────────────────────────────────────────────
 
 export class WebGLRenderer {
@@ -338,18 +398,49 @@ export class WebGLRenderer {
 
     const viewProj = camera.viewProjectionMatrix;
 
+    // 建立视锥体用于剔除
+    const frustum = new Frustum();
+    frustum.setFromProjectionMatrix(viewProj);
+
     const lines: Line[] = [];
     const sprites: Sprite[] = [];
+    const meshItems: MeshRenderItem[] = [];
 
     scene.traverse((node) => {
       if (node instanceof Mesh) {
-        this._drawMesh(node, viewProj, lightCtx);
+        // 视锥剔除：frustumCulled=true 时检测，false 时始终渲染
+        if (node.frustumCulled) {
+          const worldAABB = computeWorldAABB(node);
+          if (!intersectsAABBExcludeNear(frustum, worldAABB)) return;
+        }
+        // 计算到相机的平方距离（用于深度排序）
+        const center = computeWorldCenter(node);
+        const cp = camera.position;
+        const dx = center[0] - cp[0];
+        const dy = center[1] - cp[1];
+        const dz = center[2] - cp[2];
+        const distanceSq = dx * dx + dy * dy + dz * dz;
+        const mat = node.material;
+        const transparent = mat.transparent || mat.opacity < 1.0;
+        meshItems.push({ mesh: node, transparent, distanceSq });
       } else if (node instanceof Line) {
         lines.push(node);
       } else if (node instanceof Sprite) {
         sprites.push(node);
       }
     });
+
+    // 渲染队列排序：不透明前到后，透明后到前
+    const queue = buildRenderQueue(meshItems);
+
+    // 先绘制不透明网格
+    for (const item of queue.opaque) {
+      this._drawMesh(item.mesh, viewProj, lightCtx);
+    }
+    // 再绘制透明网格
+    for (const item of queue.transparent) {
+      this._drawMesh(item.mesh, viewProj, lightCtx);
+    }
 
     // Line 和 Sprite 在所有 Mesh 之后渲染（叠加行为）
     for (const line of lines) {
