@@ -36,6 +36,9 @@ interface PhongLocations {
   uEmissive: WebGLUniformLocation | null;
   uEmissiveMap: WebGLUniformLocation | null;
   uHasEmissiveMap: WebGLUniformLocation | null;
+  // 高光贴图
+  uSpecularMap: WebGLUniformLocation | null;
+  uHasSpecularMap: WebGLUniformLocation | null;
   // 多方向光
   uNumDirLights: WebGLUniformLocation | null;
   uDirLightDirs: Array<WebGLUniformLocation | null>;
@@ -346,6 +349,8 @@ export class WebGLRenderer {
         uEmissive:          gl.getUniformLocation(program, 'u_emissive'),
         uEmissiveMap:       gl.getUniformLocation(program, 'u_emissiveMap'),
         uHasEmissiveMap:    gl.getUniformLocation(program, 'u_hasEmissiveMap'),
+        uSpecularMap:       gl.getUniformLocation(program, 'u_specularMap'),
+        uHasSpecularMap:    gl.getUniformLocation(program, 'u_hasSpecularMap'),
         uNumDirLights:      gl.getUniformLocation(program, 'u_numDirLights'),
         uDirLightDirs:      dirDirs,
         uDirLightColors:    dirColors,
@@ -622,6 +627,23 @@ export class WebGLRenderer {
         if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 1.0);
       } else {
         if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 0.0);
+      }
+
+      // 高光贴图
+      if (mat.specularMap != null) {
+        const webglTex = this._getWebGLTexture(mat.specularMap);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, webglTex);
+        if (phong.uSpecularMap)    gl.uniform1i(phong.uSpecularMap, 3);
+        if (phong.uHasSpecularMap) gl.uniform1f(phong.uHasSpecularMap, 1.0);
+        // 绑定 UV attribute（若未绑定）
+        if (compiled.aUv >= 0 && uploaded.uvBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+          gl.enableVertexAttribArray(compiled.aUv);
+          gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+        }
+      } else {
+        if (phong.uHasSpecularMap) gl.uniform1f(phong.uHasSpecularMap, 0.0);
       }
     }
 
