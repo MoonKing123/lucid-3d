@@ -245,3 +245,243 @@ export function createCylinderGeometry(opts: {
 
   return new Geometry({ positions, normals, uvs, indices });
 }
+
+/**
+ * 锥体，尖端朝 +Y（height/2），底面朝 -Y（-height/2），以原点为中心。
+ * 默认：radius=1, height=1, radialSegments=16, openEnded=false
+ */
+export function createConeGeometry(opts?: {
+  radius?: number;
+  height?: number;
+  radialSegments?: number;
+  openEnded?: boolean;
+}): Geometry {
+  const radius = opts?.radius ?? 1;
+  const height = opts?.height ?? 1;
+  const rSeg = opts?.radialSegments ?? 16;
+  const openEnded = opts?.openEnded ?? false;
+
+  // 侧面法线参数
+  const slant = Math.sqrt(radius * radius + height * height);
+  const normalR = height / slant;  // 径向分量
+  const normalY = radius / slant;  // Y 分量
+
+  const sideVertCount = (rSeg + 1) * 2;
+  const capVertCount = openEnded ? 0 : (rSeg + 2);
+  const totalVerts = sideVertCount + capVertCount;
+
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+
+  const sideIdxCount = rSeg * 3;
+  const capIdxCount = openEnded ? 0 : rSeg * 3;
+  const indices = new Uint16Array(sideIdxCount + capIdxCount);
+
+  let vc = 0;
+  let ii = 0;
+
+  // ── 侧面：apex 行（所有顶点位于尖端，但法线不同）
+  for (let ir = 0; ir <= rSeg; ir++) {
+    const theta = (ir / rSeg) * 2 * Math.PI;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    positions[vc * 3] = 0;
+    positions[vc * 3 + 1] = height / 2;
+    positions[vc * 3 + 2] = 0;
+    normals[vc * 3] = cosT * normalR;
+    normals[vc * 3 + 1] = normalY;
+    normals[vc * 3 + 2] = sinT * normalR;
+    uvs[vc * 2] = ir / rSeg;
+    uvs[vc * 2 + 1] = 1;
+    vc++;
+  }
+
+  // ── 侧面：base 行
+  for (let ir = 0; ir <= rSeg; ir++) {
+    const theta = (ir / rSeg) * 2 * Math.PI;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    positions[vc * 3] = radius * cosT;
+    positions[vc * 3 + 1] = -height / 2;
+    positions[vc * 3 + 2] = radius * sinT;
+    normals[vc * 3] = cosT * normalR;
+    normals[vc * 3 + 1] = normalY;
+    normals[vc * 3 + 2] = sinT * normalR;
+    uvs[vc * 2] = ir / rSeg;
+    uvs[vc * 2 + 1] = 0;
+    vc++;
+  }
+
+  // 侧面索引（apex → base 三角形）
+  for (let ir = 0; ir < rSeg; ir++) {
+    const apex = ir;
+    const base0 = (rSeg + 1) + ir;
+    const base1 = (rSeg + 1) + ir + 1;
+    indices[ii++] = apex;
+    indices[ii++] = base0;
+    indices[ii++] = base1;
+  }
+
+  // ── 底盖
+  if (!openEnded) {
+    const capStart = sideVertCount;
+    // 中心
+    positions[vc * 3] = 0; positions[vc * 3 + 1] = -height / 2; positions[vc * 3 + 2] = 0;
+    normals[vc * 3] = 0; normals[vc * 3 + 1] = -1; normals[vc * 3 + 2] = 0;
+    uvs[vc * 2] = 0.5; uvs[vc * 2 + 1] = 0.5;
+    vc++;
+    // 边缘顶点
+    for (let ir = 0; ir <= rSeg; ir++) {
+      const theta = (ir / rSeg) * 2 * Math.PI;
+      const cosT = Math.cos(theta);
+      const sinT = Math.sin(theta);
+      positions[vc * 3] = radius * cosT;
+      positions[vc * 3 + 1] = -height / 2;
+      positions[vc * 3 + 2] = radius * sinT;
+      normals[vc * 3] = 0; normals[vc * 3 + 1] = -1; normals[vc * 3 + 2] = 0;
+      uvs[vc * 2] = 0.5 + 0.5 * cosT;
+      uvs[vc * 2 + 1] = 0.5 - 0.5 * sinT;
+      vc++;
+    }
+    // 底盖扇形索引
+    for (let ir = 0; ir < rSeg; ir++) {
+      const center = capStart;
+      const v0 = capStart + 1 + ir;
+      const v1 = capStart + 1 + ir + 1;
+      indices[ii++] = center;
+      indices[ii++] = v0;
+      indices[ii++] = v1;
+    }
+  }
+
+  return new Geometry({ positions, normals, uvs, indices });
+}
+
+/**
+ * 圆环（甜甜圈），在 XZ 平面围绕 Y 轴。
+ * 参数方程：P = ((R + r·cosV)·cosU, r·sinV, (R + r·cosV)·sinU)
+ * 默认：radius=1, tubeRadius=0.4, radialSegments=16, tubularSegments=32
+ */
+export function createTorusGeometry(opts?: {
+  radius?: number;
+  tubeRadius?: number;
+  radialSegments?: number;
+  tubularSegments?: number;
+}): Geometry {
+  const R = opts?.radius ?? 1;
+  const r = opts?.tubeRadius ?? 0.4;
+  const radSeg = opts?.radialSegments ?? 16;   // 管截面分段
+  const tubSeg = opts?.tubularSegments ?? 32;  // 环周分段
+
+  const vertCount = (radSeg + 1) * (tubSeg + 1);
+  const positions = new Float32Array(vertCount * 3);
+  const normals = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint16Array(radSeg * tubSeg * 6);
+
+  let vc = 0;
+  // u：绕主环角度（0 ~ 2π），v：绕管截面角度（0 ~ 2π）
+  for (let it = 0; it <= tubSeg; it++) {
+    const u = (it / tubSeg) * 2 * Math.PI;
+    const cosU = Math.cos(u);
+    const sinU = Math.sin(u);
+
+    for (let ir = 0; ir <= radSeg; ir++) {
+      const v = (ir / radSeg) * 2 * Math.PI;
+      const cosV = Math.cos(v);
+      const sinV = Math.sin(v);
+
+      positions[vc * 3] = (R + r * cosV) * cosU;
+      positions[vc * 3 + 1] = r * sinV;
+      positions[vc * 3 + 2] = (R + r * cosV) * sinU;
+
+      // 法线 = (P - 管中心) / r = (cosV·cosU, sinV, cosV·sinU)，已是单位向量
+      normals[vc * 3] = cosV * cosU;
+      normals[vc * 3 + 1] = sinV;
+      normals[vc * 3 + 2] = cosV * sinU;
+
+      uvs[vc * 2] = it / tubSeg;
+      uvs[vc * 2 + 1] = ir / radSeg;
+      vc++;
+    }
+  }
+
+  let ii = 0;
+  for (let it = 0; it < tubSeg; it++) {
+    for (let ir = 0; ir < radSeg; ir++) {
+      const a = it * (radSeg + 1) + ir;
+      const b = (it + 1) * (radSeg + 1) + ir;
+      const c = (it + 1) * (radSeg + 1) + ir + 1;
+      const d = it * (radSeg + 1) + ir + 1;
+      indices[ii++] = a; indices[ii++] = b; indices[ii++] = d;
+      indices[ii++] = b; indices[ii++] = c; indices[ii++] = d;
+    }
+  }
+
+  return new Geometry({ positions, normals, uvs, indices });
+}
+
+/**
+ * 环形平面（准心/地面标记），位于 XZ 平面，法线 +Y。
+ * 默认：innerRadius=0.5, outerRadius=1, thetaSegments=32
+ */
+export function createRingGeometry(opts?: {
+  innerRadius?: number;
+  outerRadius?: number;
+  thetaSegments?: number;
+}): Geometry {
+  const innerR = opts?.innerRadius ?? 0.5;
+  const outerR = opts?.outerRadius ?? 1;
+  const tSeg = opts?.thetaSegments ?? 32;
+
+  // 内环 (tSeg+1) + 外环 (tSeg+1) 顶点
+  const vertCount = (tSeg + 1) * 2;
+  const positions = new Float32Array(vertCount * 3);
+  const normals = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = new Uint16Array(tSeg * 6);
+
+  let vc = 0;
+
+  // 内环顶点
+  for (let it = 0; it <= tSeg; it++) {
+    const theta = (it / tSeg) * 2 * Math.PI;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    positions[vc * 3] = innerR * cosT;
+    positions[vc * 3 + 1] = 0;
+    positions[vc * 3 + 2] = innerR * sinT;
+    normals[vc * 3] = 0; normals[vc * 3 + 1] = 1; normals[vc * 3 + 2] = 0;
+    uvs[vc * 2] = 0.5 + 0.5 * cosT * (innerR / outerR);
+    uvs[vc * 2 + 1] = 0.5 + 0.5 * sinT * (innerR / outerR);
+    vc++;
+  }
+
+  // 外环顶点
+  for (let it = 0; it <= tSeg; it++) {
+    const theta = (it / tSeg) * 2 * Math.PI;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    positions[vc * 3] = outerR * cosT;
+    positions[vc * 3 + 1] = 0;
+    positions[vc * 3 + 2] = outerR * sinT;
+    normals[vc * 3] = 0; normals[vc * 3 + 1] = 1; normals[vc * 3 + 2] = 0;
+    uvs[vc * 2] = 0.5 + 0.5 * cosT;
+    uvs[vc * 2 + 1] = 0.5 + 0.5 * sinT;
+    vc++;
+  }
+
+  // 每段一个 quad（内环 → 外环）
+  let ii = 0;
+  for (let it = 0; it < tSeg; it++) {
+    const inner0 = it;
+    const inner1 = it + 1;
+    const outer0 = (tSeg + 1) + it;
+    const outer1 = (tSeg + 1) + it + 1;
+    indices[ii++] = inner0; indices[ii++] = outer0; indices[ii++] = outer1;
+    indices[ii++] = inner0; indices[ii++] = outer1; indices[ii++] = inner1;
+  }
+
+  return new Geometry({ positions, normals, uvs, indices });
+}
