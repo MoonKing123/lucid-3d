@@ -4,48 +4,79 @@
  * @see test/unit/core/asset-manager.test.ts
  */
 
-export const __STUB__ = true;
-
 export class AssetManager {
-  constructor() {
-    throw new Error('STUB: AssetManager not implemented');
-  }
+  private cache = new Map<string, unknown>();
+  private pending = new Map<string, Promise<unknown>>();
 
   /** 加载资产（缓存命中直接返回，否则调用 loader） */
-  async load<T>(_key: string, _loader: () => Promise<T>): Promise<T> {
-    throw new Error('STUB: AssetManager.load not implemented');
+  async load<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    if (this.cache.has(key)) {
+      return this.cache.get(key) as T;
+    }
+
+    // 并发安全：同一 key 共享同一 Promise
+    if (this.pending.has(key)) {
+      return this.pending.get(key) as Promise<T>;
+    }
+
+    const promise = loader().then(
+      (value) => {
+        this.cache.set(key, value);
+        this.pending.delete(key);
+        return value;
+      },
+      (err) => {
+        // 失败不缓存，允许重试
+        this.pending.delete(key);
+        throw err;
+      },
+    );
+
+    this.pending.set(key, promise);
+    return promise as Promise<T>;
   }
 
   /** 获取已缓存的资产（未加载返回 undefined） */
-  get<T>(_key: string): T | undefined {
-    throw new Error('STUB: AssetManager.get not implemented');
+  get<T>(key: string): T | undefined {
+    return this.cache.get(key) as T | undefined;
   }
 
   /** 检查资产是否已缓存 */
-  has(_key: string): boolean {
-    throw new Error('STUB: AssetManager.has not implemented');
+  has(key: string): boolean {
+    return this.cache.has(key);
   }
 
   /** 释放指定资产 */
-  dispose(_key: string): boolean {
-    throw new Error('STUB: AssetManager.dispose not implemented');
+  dispose(key: string): boolean {
+    return this.cache.delete(key);
   }
 
   /** 释放所有资产 */
   disposeAll(): void {
-    throw new Error('STUB: AssetManager.disposeAll not implemented');
+    this.cache.clear();
   }
 
   /** 已缓存资产数量 */
   get size(): number {
-    throw new Error('STUB: AssetManager.size not implemented');
+    return this.cache.size;
   }
 
-  /** 批量加载 + 进度回调 */
+  /** 批量加载 + 进度回调（单个失败不影响其余） */
   async loadAll(
-    _entries: Array<{ key: string; loader: () => Promise<unknown> }>,
-    _onProgress?: (loaded: number, total: number) => void,
+    entries: Array<{ key: string; loader: () => Promise<unknown> }>,
+    onProgress?: (loaded: number, total: number) => void,
   ): Promise<void> {
-    throw new Error('STUB: AssetManager.loadAll not implemented');
+    const total = entries.length;
+    let loaded = 0;
+
+    for (const { key, loader } of entries) {
+      try {
+        await this.load(key, loader);
+      } catch {
+        // 跳过失败项，继续加载其余资产
+      }
+      loaded++;
+      onProgress?.(loaded, total);
+    }
   }
 }
