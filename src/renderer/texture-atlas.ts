@@ -4,8 +4,6 @@
  * @see test/unit/renderer/texture-atlas.test.ts
  */
 
-export const __STUB__ = true;
-
 import type { Texture } from './texture';
 
 export interface AtlasRegion {
@@ -22,37 +20,61 @@ export class TextureAtlas {
   readonly cols: number;
   readonly rows: number;
 
-  private constructor(_texture: Texture, _cols: number, _rows: number) {
-    throw new Error('STUB: TextureAtlas not implemented');
+  private readonly _named: Map<string, AtlasRegion> = new Map();
+
+  private constructor(texture: Texture, cols: number, rows: number) {
+    this.texture = texture;
+    this.cols = cols;
+    this.rows = rows;
   }
 
   /** 创建均匀网格图集 */
-  static fromGrid(_texture: Texture, _cols: number, _rows: number): TextureAtlas {
-    throw new Error('STUB: TextureAtlas.fromGrid not implemented');
+  static fromGrid(texture: Texture, cols: number, rows: number): TextureAtlas {
+    return new TextureAtlas(texture, cols, rows);
   }
 
-  /** 获取网格索引对应的区域 */
-  getRegion(_index: number): AtlasRegion {
-    throw new Error('STUB: TextureAtlas.getRegion not implemented');
+  /** 获取网格索引对应的区域（索引从 0 开始，左到右、上到下） */
+  getRegion(index: number): AtlasRegion {
+    const total = this.cols * this.rows;
+    if (index < 0 || index >= total) {
+      throw new RangeError(`TextureAtlas.getRegion: 索引 ${index} 越界（共 ${total} 个区域）`);
+    }
+    const col = index % this.cols;
+    const row = Math.floor(index / this.cols);
+    return {
+      u0: col / this.cols,
+      v0: row / this.rows,
+      u1: (col + 1) / this.cols,
+      v1: (row + 1) / this.rows,
+      width: this.texture.width / this.cols,
+      height: this.texture.height / this.rows,
+    };
   }
 
-  /** 定义自定义命名区域（像素坐标） */
-  defineRegion(_name: string, _x: number, _y: number, _width: number, _height: number): void {
-    throw new Error('STUB: TextureAtlas.defineRegion not implemented');
+  /** 定义自定义命名区域（像素坐标转 UV）。同名覆盖旧定义 */
+  defineRegion(name: string, x: number, y: number, width: number, height: number): void {
+    this._named.set(name, {
+      u0: x / this.texture.width,
+      v0: y / this.texture.height,
+      u1: (x + width) / this.texture.width,
+      v1: (y + height) / this.texture.height,
+      width,
+      height,
+    });
   }
 
-  /** 获取命名区域 */
-  getNamedRegion(_name: string): AtlasRegion | undefined {
-    throw new Error('STUB: TextureAtlas.getNamedRegion not implemented');
+  /** 获取命名区域，不存在返回 undefined */
+  getNamedRegion(name: string): AtlasRegion | undefined {
+    return this._named.get(name);
   }
 
   /** 网格区域总数 */
   get regionCount(): number {
-    throw new Error('STUB: TextureAtlas.regionCount not implemented');
+    return this.cols * this.rows;
   }
 
   /** 所有命名区域的名称列表 */
   get namedRegions(): string[] {
-    throw new Error('STUB: TextureAtlas.namedRegions not implemented');
+    return Array.from(this._named.keys());
   }
 }
