@@ -41,21 +41,36 @@ export class LineGeometry {
   positions: Float32Array;
   colors: Float32Array;
 
-  constructor(opts: { points: Vec3[]; colors?: Vec3[] }) {
-    this.positions = LineGeometry._toBuffer(opts.points);
-    this.colors = opts.colors
-      ? LineGeometry._toBuffer(opts.colors)
-      : new Float32Array(opts.points.length * 3).fill(1);
+  private _pts: Vec3[];
+  private _cols: Vec3[];
+
+  constructor(opts?: { points?: Vec3[]; colors?: Vec3[] }) {
+    const points = opts?.points ?? [];
+    const colors = opts?.colors;
+    this._pts = [...points];
+    this._cols = colors ? [...colors] : points.map(() => vec3(1, 1, 1));
+    this.positions = LineGeometry._toBuffer(this._pts);
+    this.colors = LineGeometry._toBuffer(this._cols);
+  }
+
+  /** 追加一个顶点及其可选颜色 */
+  addPoint(position: Vec3, color?: Vec3): void {
+    this._pts.push(position);
+    this._cols.push(color ?? vec3(1, 1, 1));
+    this.positions = LineGeometry._toBuffer(this._pts);
+    this.colors = LineGeometry._toBuffer(this._cols);
   }
 
   /** 更新点列表（重新分配缓冲区） */
   setPoints(points: Vec3[]): void {
-    this.positions = LineGeometry._toBuffer(points);
+    this._pts = [...points];
+    this.positions = LineGeometry._toBuffer(this._pts);
   }
 
   /** 更新逐顶点颜色 */
   setColors(colors: Vec3[]): void {
-    this.colors = LineGeometry._toBuffer(colors);
+    this._cols = [...colors];
+    this.colors = LineGeometry._toBuffer(this._cols);
   }
 
   /** 点数量 */

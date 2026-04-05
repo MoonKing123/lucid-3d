@@ -19,6 +19,8 @@ import { TextureMaterial } from './texture-material';
 import { Texture } from './texture';
 import { PhongMaterial } from './phong-material';
 import { BitmapTextMaterial } from './bitmap-text';
+import { Line, LineMaterial } from './line-renderer';
+import { Sprite, SpriteMaterial } from './sprite';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -81,6 +83,40 @@ interface UploadedGeometry {
   jointsBuffer: WebGLBuffer | null;
   weightsBuffer: WebGLBuffer | null;
 }
+
+// ── Line program cache ───────────────────────────────────────────
+
+interface LineProgramInfo {
+  program: WebGLProgram;
+  aPosition: number;
+  aColor: number;
+  uMvp: WebGLUniformLocation;
+  uColor: WebGLUniformLocation | null;
+  uOpacity: WebGLUniformLocation | null;
+}
+
+// ── Sprite program cache ─────────────────────────────────────────
+
+interface SpriteProgramInfo {
+  program: WebGLProgram;
+  aPosition: number;
+  aUv: number;
+  uModelView: WebGLUniformLocation | null;
+  uProjection: WebGLUniformLocation | null;
+  uColor: WebGLUniformLocation | null;
+  uOpacity: WebGLUniformLocation | null;
+  uHasTexture: WebGLUniformLocation | null;
+  uTexture: WebGLUniformLocation | null;
+}
+
+interface SpriteQuad {
+  positionBuffer: WebGLBuffer;
+  uvBuffer: WebGLBuffer;
+  indexBuffer: WebGLBuffer;
+}
+
+// WebGL 1.0 LINE_LOOP 常量（mock 中可能未定义）
+const GL_LINE_LOOP = 0x0002;
 
 const MAX_BONES = 32;
 
@@ -205,6 +241,9 @@ export class WebGLRenderer {
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
   private textureCache: WeakMap<Texture, WebGLTexture> = new WeakMap();
   private skinningProgram: SkinningProgram | null = null;
+  private lineProgramCache: WeakMap<LineMaterial, LineProgramInfo> = new WeakMap();
+  private spriteProgramCache: WeakMap<SpriteMaterial, SpriteProgramInfo> = new WeakMap();
+  private spriteQuad: SpriteQuad | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -299,11 +338,26 @@ export class WebGLRenderer {
 
     const viewProj = camera.viewProjectionMatrix;
 
+    const lines: Line[] = [];
+    const sprites: Sprite[] = [];
+
     scene.traverse((node) => {
       if (node instanceof Mesh) {
         this._drawMesh(node, viewProj, lightCtx);
+      } else if (node instanceof Line) {
+        lines.push(node);
+      } else if (node instanceof Sprite) {
+        sprites.push(node);
       }
     });
+
+    // Line 和 Sprite 在所有 Mesh 之后渲染（叠加行为）
+    for (const line of lines) {
+      this._drawLine(line, viewProj);
+    }
+    for (const sprite of sprites) {
+      this._drawSprite(sprite, camera);
+    }
   }
 
   /** Release all GPU resources. */
@@ -841,5 +895,195 @@ export class WebGLRenderer {
     } else {
       gl.drawArrays(gl.TRIANGLES, 0, uploaded.vertexCount);
     }
+  }
+
+  // ── Line rendering ────────────────────────────────────────────────
+
+  private _getLineProgramInfo(mat: LineMaterial): LineProgramInfo {
+    const cached = this.lineProgramCache.get(mat);
+    if (cached) return cached;
+
+    const gl = this.gl;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, mat.vertexShader);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, mat.fragmentShader);
+    const program = createProgram(gl, vs, fs);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    const uMvpLoc = gl.getUniformLocation(program, 'u_mvp');
+    if (!uMvpLoc) throw new Error('Line shader must define uniform mat4 u_mvp');
+
+    const info: LineProgramInfo = {
+      program,
+      aPosition: gl.getAttribLocation(program, 'a_position'),
+      aColor:    gl.getAttribLocation(program, 'a_color'),
+      uMvp:      uMvpLoc,
+      uColor:    gl.getUniformLocation(program, 'u_color'),
+      uOpacity:  gl.getUniformLocation(program, 'u_opacity'),
+    };
+    this.lineProgramCache.set(mat, info);
+    return info;
+  }
+
+  private _drawLine(line: Line, viewProj: Mat4): void {
+    if (!line.visible) return;
+
+    const gl = this.gl;
+    const geo = line.geometry;
+    const vertexCount = geo.positions.length / 3;
+    if (vertexCount === 0) return;
+
+    const mat = line.material;
+    const prog = this._getLineProgramInfo(mat);
+
+    // 上传顶点缓冲区（Line 几何可能动态变化，每帧创建）
+    const posBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, geo.positions, gl.DYNAMIC_DRAW);
+
+    const colBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, geo.colors, gl.DYNAMIC_DRAW);
+
+    const mvp = multiply(viewProj, line.worldMatrix);
+
+    gl.useProgram(prog.program);
+    gl.uniformMatrix4fv(prog.uMvp, false, mvp);
+    if (prog.uColor)   gl.uniform3fv(prog.uColor, mat.color);
+    if (prog.uOpacity) gl.uniform1f(prog.uOpacity, mat.opacity);
+
+    if (prog.aPosition >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+      gl.enableVertexAttribArray(prog.aPosition);
+      gl.vertexAttribPointer(prog.aPosition, 3, gl.FLOAT, false, 0, 0);
+    }
+    if (prog.aColor >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+      gl.enableVertexAttribArray(prog.aColor);
+      gl.vertexAttribPointer(prog.aColor, 3, gl.FLOAT, false, 0, 0);
+    }
+
+    const glMode = line.drawMode === 'LINES'      ? gl.LINES
+                 : line.drawMode === 'LINE_STRIP'  ? gl.LINE_STRIP
+                 : GL_LINE_LOOP;
+
+    gl.drawArrays(glMode, 0, vertexCount);
+
+    gl.deleteBuffer(posBuffer);
+    gl.deleteBuffer(colBuffer);
+  }
+
+  // ── Sprite rendering ──────────────────────────────────────────────
+
+  private _getSpriteProgramInfo(mat: SpriteMaterial): SpriteProgramInfo {
+    const cached = this.spriteProgramCache.get(mat);
+    if (cached) return cached;
+
+    const gl = this.gl;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, mat.vertexShader);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, mat.fragmentShader);
+    const program = createProgram(gl, vs, fs);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    const info: SpriteProgramInfo = {
+      program,
+      aPosition:   gl.getAttribLocation(program, 'a_position'),
+      aUv:         gl.getAttribLocation(program, 'a_uv'),
+      uModelView:  gl.getUniformLocation(program, 'u_modelView'),
+      uProjection: gl.getUniformLocation(program, 'u_projection'),
+      uColor:      gl.getUniformLocation(program, 'u_color'),
+      uOpacity:    gl.getUniformLocation(program, 'u_opacity'),
+      uHasTexture: gl.getUniformLocation(program, 'u_hasTexture'),
+      uTexture:    gl.getUniformLocation(program, 'u_texture'),
+    };
+    this.spriteProgramCache.set(mat, info);
+    return info;
+  }
+
+  private _getSpriteQuad(): SpriteQuad {
+    if (this.spriteQuad) return this.spriteQuad;
+
+    const gl = this.gl;
+
+    // 单位四边形：4 顶点，中心在原点
+    const positions = new Float32Array([
+      -0.5, -0.5, 0,
+       0.5, -0.5, 0,
+       0.5,  0.5, 0,
+      -0.5,  0.5, 0,
+    ]);
+    const uvs = new Float32Array([
+      0, 0,
+      1, 0,
+      1, 1,
+      0, 1,
+    ]);
+    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+
+    const positionBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+    const uvBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+
+    const indexBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    this.spriteQuad = { positionBuffer, uvBuffer, indexBuffer };
+    return this.spriteQuad;
+  }
+
+  private _drawSprite(sprite: Sprite, camera: Camera): void {
+    if (!sprite.visible) return;
+
+    const gl = this.gl;
+    const mat = sprite.material;
+
+    const quad = this._getSpriteQuad();
+    const prog = this._getSpriteProgramInfo(mat);
+
+    // 开启 alpha 混合
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // modelView = viewMatrix × worldMatrix
+    const modelView = multiply(camera.viewMatrix, sprite.worldMatrix);
+
+    gl.useProgram(prog.program);
+    if (prog.uModelView)  gl.uniformMatrix4fv(prog.uModelView, false, modelView);
+    if (prog.uProjection) gl.uniformMatrix4fv(prog.uProjection, false, camera.projectionMatrix);
+    if (prog.uColor)      gl.uniform3fv(prog.uColor, mat.color);
+    if (prog.uOpacity)    gl.uniform1f(prog.uOpacity, mat.opacity);
+
+    if (mat.texture) {
+      if (prog.uHasTexture) gl.uniform1f(prog.uHasTexture, 1.0);
+      const webglTex = this._getWebGLTexture(mat.texture);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, webglTex);
+      if (prog.uTexture) gl.uniform1i(prog.uTexture, 0);
+    } else {
+      if (prog.uHasTexture) gl.uniform1f(prog.uHasTexture, 0.0);
+    }
+
+    if (prog.aPosition >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad.positionBuffer);
+      gl.enableVertexAttribArray(prog.aPosition);
+      gl.vertexAttribPointer(prog.aPosition, 3, gl.FLOAT, false, 0, 0);
+    }
+    if (prog.aUv >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad.uvBuffer);
+      gl.enableVertexAttribArray(prog.aUv);
+      gl.vertexAttribPointer(prog.aUv, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quad.indexBuffer);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+    // 恢复混合状态
+    gl.disable(gl.BLEND);
   }
 }
