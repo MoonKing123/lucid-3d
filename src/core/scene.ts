@@ -8,6 +8,7 @@ import { type Vec3, vec3 } from '../math/vec3';
 import { AmbientLight, DirectionalLight } from './light';
 import { PointLight } from './point-light';
 import { SpotLight } from './spot-light';
+import { CubeTexture } from '../renderer/cube-texture';
 
 export interface FogOptions {
   color: Vec3;
@@ -16,7 +17,7 @@ export interface FogOptions {
 }
 
 export interface SceneOptions {
-  background?: Vec3;
+  background?: Vec3 | CubeTexture;
   fog?: FogOptions;
 }
 
@@ -28,7 +29,7 @@ export interface CollectedLights {
 }
 
 export class Scene extends Node3D {
-  background: Vec3;
+  background: Vec3 | CubeTexture;
   fog: FogOptions | null;
 
   constructor(opts?: SceneOptions) {
