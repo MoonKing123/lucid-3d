@@ -80,6 +80,10 @@ const PHONG_FRAGMENT_SHADER = `
       ? texture2D(u_map, v_uv).rgb * u_diffuse
       : u_diffuse;
 
+    vec3 baseSpecular = u_hasSpecularMap > 0.5
+      ? texture2D(u_specularMap, v_uv).rgb * u_specular
+      : u_specular;
+
     vec3 color = u_ambientColor * baseDiffuse;
 
     // 方向光循环
@@ -90,7 +94,7 @@ const PHONG_FRAGMENT_SHADER = `
       float diff = max(dot(N, L), 0.0);
       float spec = pow(max(dot(N, H), 0.0), u_shininess);
       color += u_dirLightColors[i] * baseDiffuse * diff;
-      color += u_dirLightColors[i] * u_specular * spec;
+      color += u_dirLightColors[i] * baseSpecular * spec;
     }
 
     // 点光源循环
@@ -111,7 +115,7 @@ const PHONG_FRAGMENT_SHADER = `
         attenuation = pow(max(1.0 - d / dist, 0.0), decay);
       }
       color += u_pointLightColors[i] * baseDiffuse * diff * attenuation;
-      color += u_pointLightColors[i] * u_specular * spec * attenuation;
+      color += u_pointLightColors[i] * baseSpecular * spec * attenuation;
     }
 
     vec3 emissiveColor = u_hasEmissiveMap > 0.5
