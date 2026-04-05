@@ -24,6 +24,8 @@ import { BitmapTextMaterial } from './bitmap-text';
 import { Line, LineMaterial } from './line-renderer';
 import { Sprite, SpriteMaterial } from './sprite';
 import { type RenderInfo, createRenderInfo, resetRenderInfo } from './render-info';
+import { CubeTexture } from './cube-texture';
+import { SkyboxRenderer } from './skybox';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -306,6 +308,7 @@ export class WebGLRenderer {
   private lineProgramCache: WeakMap<LineMaterial, LineProgramInfo> = new WeakMap();
   private spriteProgramCache: WeakMap<SpriteMaterial, SpriteProgramInfo> = new WeakMap();
   private spriteQuad: SpriteQuad | null = null;
+  private skyboxRenderer: SkyboxRenderer | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -330,8 +333,20 @@ export class WebGLRenderer {
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     const bg = scene.background;
-    gl.clearColor(bg[0], bg[1], bg[2], 1.0);
+    if (bg instanceof CubeTexture) {
+      gl.clearColor(0, 0, 0, 1.0);
+    } else {
+      gl.clearColor(bg[0], bg[1], bg[2], 1.0);
+    }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // 天空盒渲染（clear 后、场景遍历前）
+    if (bg instanceof CubeTexture) {
+      if (this.skyboxRenderer === null) {
+        this.skyboxRenderer = new SkyboxRenderer(gl);
+      }
+      this.skyboxRenderer.render(bg, camera);
+    }
 
     // 收集光源
     let ambientColor: Vec3 = vec3(0, 0, 0);
