@@ -34,7 +34,7 @@ const PHONG_VERTEX_SHADER = `
 
 const PHONG_FRAGMENT_SHADER = `
   precision mediump float;
-  // 单方向光（向后兼容）
+  // 向后兼容（单光源，保留声明供旧测试检查）
   uniform vec3 u_lightDir;
   uniform vec3 u_lightColor;
   uniform vec3 u_ambientColor;
@@ -74,26 +74,51 @@ const PHONG_FRAGMENT_SHADER = `
 
   void main() {
     vec3 N = normalize(v_normal);
-    vec3 L = normalize(-u_lightDir);
     vec3 V = normalize(u_cameraPos - v_worldPos);
-    vec3 H = normalize(L + V);
-
-    float diff = max(dot(N, L), 0.0);
-    float spec = pow(max(dot(N, H), 0.0), u_shininess);
 
     vec3 baseDiffuse = u_hasMap > 0.5
       ? texture2D(u_map, v_uv).rgb * u_diffuse
       : u_diffuse;
 
-    vec3 ambient  = u_ambientColor * baseDiffuse;
-    vec3 diffuse  = u_lightColor * baseDiffuse * diff;
-    vec3 specular = u_lightColor * u_specular * spec;
+    vec3 color = u_ambientColor * baseDiffuse;
+
+    // 方向光循环
+    for (int i = 0; i < 4; i++) {
+      if (i >= u_numDirLights) break;
+      vec3 L = normalize(-u_dirLightDirs[i]);
+      vec3 H = normalize(L + V);
+      float diff = max(dot(N, L), 0.0);
+      float spec = pow(max(dot(N, H), 0.0), u_shininess);
+      color += u_dirLightColors[i] * baseDiffuse * diff;
+      color += u_dirLightColors[i] * u_specular * spec;
+    }
+
+    // 点光源循环
+    for (int i = 0; i < 4; i++) {
+      if (i >= u_numPointLights) break;
+      vec3 lightVec = u_pointLightPositions[i] - v_worldPos;
+      float d = length(lightVec);
+      vec3 L = lightVec / max(d, 0.0001);
+      vec3 H = normalize(L + V);
+      float diff = max(dot(N, L), 0.0);
+      float spec = pow(max(dot(N, H), 0.0), u_shininess);
+      float dist = u_pointLightDistances[i];
+      float decay = u_pointLightDecays[i];
+      float attenuation;
+      if (dist <= 0.0) {
+        attenuation = 1.0 / max(pow(d, decay), 0.01);
+      } else {
+        attenuation = pow(max(1.0 - d / dist, 0.0), decay);
+      }
+      color += u_pointLightColors[i] * baseDiffuse * diff * attenuation;
+      color += u_pointLightColors[i] * u_specular * spec * attenuation;
+    }
 
     vec3 emissiveColor = u_hasEmissiveMap > 0.5
       ? u_emissive * texture2D(u_emissiveMap, v_uv).rgb
       : u_emissive;
 
-    gl_FragColor = vec4(ambient + diffuse + specular + emissiveColor, 1.0);
+    gl_FragColor = vec4(color + emissiveColor, 1.0);
   }
 `;
 

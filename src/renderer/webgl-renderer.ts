@@ -9,6 +9,7 @@ import { Node3D } from '../core/node3d';
 import { Scene } from '../core/scene';
 import { Camera } from '../core/camera';
 import { AmbientLight, DirectionalLight } from '../core/light';
+import { PointLight } from '../core/point-light';
 import { Mesh } from './mesh';
 import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
@@ -24,8 +25,6 @@ interface PhongLocations {
   aNormal: number;
   uModelMatrix: WebGLUniformLocation | null;
   uNormalMatrix: WebGLUniformLocation | null;
-  uLightDir: WebGLUniformLocation | null;
-  uLightColor: WebGLUniformLocation | null;
   uAmbientColor: WebGLUniformLocation | null;
   uCameraPos: WebGLUniformLocation | null;
   uDiffuse: WebGLUniformLocation | null;
@@ -33,6 +32,16 @@ interface PhongLocations {
   uShininess: WebGLUniformLocation | null;
   uMap: WebGLUniformLocation | null;
   uHasMap: WebGLUniformLocation | null;
+  // 多方向光
+  uNumDirLights: WebGLUniformLocation | null;
+  uDirLightDirs: Array<WebGLUniformLocation | null>;
+  uDirLightColors: Array<WebGLUniformLocation | null>;
+  // 点光源
+  uNumPointLights: WebGLUniformLocation | null;
+  uPointLightPositions: Array<WebGLUniformLocation | null>;
+  uPointLightColors: Array<WebGLUniformLocation | null>;
+  uPointLightDistances: Array<WebGLUniformLocation | null>;
+  uPointLightDecays: Array<WebGLUniformLocation | null>;
 }
 
 interface CompiledProgram {
@@ -97,11 +106,26 @@ interface SkinningProgram {
   uBoneMatrices: WebGLUniformLocation;
 }
 
+const MAX_DIR_LIGHTS = 4;
+const MAX_POINT_LIGHTS = 4;
+
+interface DirLightData {
+  dir: Vec3;
+  color: Vec3;
+}
+
+interface PointLightData {
+  position: Vec3;
+  color: Vec3;
+  distance: number;
+  decay: number;
+}
+
 interface LightContext {
   ambientColor: Vec3;
-  lightDir: Vec3;
-  lightColor: Vec3;
   cameraPos: Vec3;
+  dirLights: DirLightData[];
+  pointLights: PointLightData[];
 }
 
 // ── Shader helpers ────────────────────────────────────────────────
@@ -179,8 +203,8 @@ export class WebGLRenderer {
 
     // 收集光源
     let ambientColor: Vec3 = vec3(0, 0, 0);
-    let lightDir: Vec3 = vec3(0, -1, 0);
-    let lightColor: Vec3 = vec3(0, 0, 0);
+    const dirLights: DirLightData[] = [];
+    const pointLights: PointLightData[] = [];
 
     const collected = scene.collectLights();
     for (const node of collected.ambient) {
@@ -191,19 +215,38 @@ export class WebGLRenderer {
       );
     }
     for (const node of collected.directional) {
-      lightDir = node.direction;
-      lightColor = vec3(
-        node.color[0] * node.intensity,
-        node.color[1] * node.intensity,
-        node.color[2] * node.intensity,
-      );
+      if (dirLights.length >= MAX_DIR_LIGHTS) break;
+      dirLights.push({
+        dir: node.direction,
+        color: vec3(
+          node.color[0] * node.intensity,
+          node.color[1] * node.intensity,
+          node.color[2] * node.intensity,
+        ),
+      });
+    }
+    for (const node of collected.point) {
+      if (pointLights.length >= MAX_POINT_LIGHTS) break;
+      const wm = node.worldMatrix;
+      // 列优先矩阵：第四列（索引 12,13,14）为世界坐标
+      const worldPos = vec3(wm[12], wm[13], wm[14]);
+      pointLights.push({
+        position: worldPos,
+        color: vec3(
+          node.color[0] * node.intensity,
+          node.color[1] * node.intensity,
+          node.color[2] * node.intensity,
+        ),
+        distance: node.distance,
+        decay: node.decay,
+      });
     }
 
     const lightCtx: LightContext = {
       ambientColor,
-      lightDir,
-      lightColor,
       cameraPos: camera.position,
+      dirLights,
+      pointLights,
     };
 
     const viewProj = camera.viewProjectionMatrix;
@@ -269,19 +312,41 @@ export class WebGLRenderer {
 
     // 如果是 PhongMaterial，查询额外的 attribute / uniform 位置
     if (material instanceof PhongMaterial) {
+      const dirDirs: Array<WebGLUniformLocation | null> = [];
+      const dirColors: Array<WebGLUniformLocation | null> = [];
+      const ptPositions: Array<WebGLUniformLocation | null> = [];
+      const ptColors: Array<WebGLUniformLocation | null> = [];
+      const ptDistances: Array<WebGLUniformLocation | null> = [];
+      const ptDecays: Array<WebGLUniformLocation | null> = [];
+      for (let i = 0; i < MAX_DIR_LIGHTS; i++) {
+        dirDirs.push(gl.getUniformLocation(program, `u_dirLightDirs[${i}]`));
+        dirColors.push(gl.getUniformLocation(program, `u_dirLightColors[${i}]`));
+      }
+      for (let i = 0; i < MAX_POINT_LIGHTS; i++) {
+        ptPositions.push(gl.getUniformLocation(program, `u_pointLightPositions[${i}]`));
+        ptColors.push(gl.getUniformLocation(program, `u_pointLightColors[${i}]`));
+        ptDistances.push(gl.getUniformLocation(program, `u_pointLightDistances[${i}]`));
+        ptDecays.push(gl.getUniformLocation(program, `u_pointLightDecays[${i}]`));
+      }
       compiled.phong = {
-        aNormal:       gl.getAttribLocation(program, 'a_normal'),
-        uModelMatrix:  gl.getUniformLocation(program, 'u_modelMatrix'),
-        uNormalMatrix: gl.getUniformLocation(program, 'u_normalMatrix'),
-        uLightDir:     gl.getUniformLocation(program, 'u_lightDir'),
-        uLightColor:   gl.getUniformLocation(program, 'u_lightColor'),
-        uAmbientColor: gl.getUniformLocation(program, 'u_ambientColor'),
-        uCameraPos:    gl.getUniformLocation(program, 'u_cameraPos'),
-        uDiffuse:      gl.getUniformLocation(program, 'u_diffuse'),
-        uSpecular:     gl.getUniformLocation(program, 'u_specular'),
-        uShininess:    gl.getUniformLocation(program, 'u_shininess'),
-        uMap:          gl.getUniformLocation(program, 'u_map'),
-        uHasMap:       gl.getUniformLocation(program, 'u_hasMap'),
+        aNormal:            gl.getAttribLocation(program, 'a_normal'),
+        uModelMatrix:       gl.getUniformLocation(program, 'u_modelMatrix'),
+        uNormalMatrix:      gl.getUniformLocation(program, 'u_normalMatrix'),
+        uAmbientColor:      gl.getUniformLocation(program, 'u_ambientColor'),
+        uCameraPos:         gl.getUniformLocation(program, 'u_cameraPos'),
+        uDiffuse:           gl.getUniformLocation(program, 'u_diffuse'),
+        uSpecular:          gl.getUniformLocation(program, 'u_specular'),
+        uShininess:         gl.getUniformLocation(program, 'u_shininess'),
+        uMap:               gl.getUniformLocation(program, 'u_map'),
+        uHasMap:            gl.getUniformLocation(program, 'u_hasMap'),
+        uNumDirLights:      gl.getUniformLocation(program, 'u_numDirLights'),
+        uDirLightDirs:      dirDirs,
+        uDirLightColors:    dirColors,
+        uNumPointLights:    gl.getUniformLocation(program, 'u_numPointLights'),
+        uPointLightPositions: ptPositions,
+        uPointLightColors:  ptColors,
+        uPointLightDistances: ptDistances,
+        uPointLightDecays:  ptDecays,
       };
     }
 
@@ -491,10 +556,32 @@ export class WebGLRenderer {
       }
 
       // 光照 uniforms
-      if (phong.uLightDir)     gl.uniform3fv(phong.uLightDir, lightCtx.lightDir);
-      if (phong.uLightColor)   gl.uniform3fv(phong.uLightColor, lightCtx.lightColor);
       if (phong.uAmbientColor) gl.uniform3fv(phong.uAmbientColor, lightCtx.ambientColor);
       if (phong.uCameraPos)    gl.uniform3fv(phong.uCameraPos, lightCtx.cameraPos);
+
+      // 多方向光
+      if (phong.uNumDirLights) gl.uniform1i(phong.uNumDirLights, lightCtx.dirLights.length);
+      for (let i = 0; i < lightCtx.dirLights.length; i++) {
+        const dl = lightCtx.dirLights[i];
+        const dirLoc = phong.uDirLightDirs[i];
+        const colorLoc = phong.uDirLightColors[i];
+        if (dirLoc)   gl.uniform3fv(dirLoc, dl.dir);
+        if (colorLoc) gl.uniform3fv(colorLoc, dl.color);
+      }
+
+      // 点光源
+      if (phong.uNumPointLights) gl.uniform1i(phong.uNumPointLights, lightCtx.pointLights.length);
+      for (let i = 0; i < lightCtx.pointLights.length; i++) {
+        const pl = lightCtx.pointLights[i];
+        const posLoc  = phong.uPointLightPositions[i];
+        const colLoc  = phong.uPointLightColors[i];
+        const distLoc = phong.uPointLightDistances[i];
+        const decLoc  = phong.uPointLightDecays[i];
+        if (posLoc)  gl.uniform3fv(posLoc, pl.position);
+        if (colLoc)  gl.uniform3fv(colLoc, pl.color);
+        if (distLoc) gl.uniform1f(distLoc, pl.distance);
+        if (decLoc)  gl.uniform1f(decLoc, pl.decay);
+      }
 
       // 材质属性 uniforms
       if (phong.uDiffuse)   gl.uniform3fv(phong.uDiffuse, mat.diffuse);
@@ -503,7 +590,7 @@ export class WebGLRenderer {
 
       // 漫反射纹理贴图
       if (mat.map != null) {
-        const webglTex = this._getOrUploadTexture(mat.map);
+        const webglTex = this._getWebGLTexture(mat.map);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, webglTex);
         if (phong.uMap)    gl.uniform1i(phong.uMap, 0);
