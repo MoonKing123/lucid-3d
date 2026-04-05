@@ -208,4 +208,23 @@ export class PhongMaterial extends Material {
     this.normalScale  = opts.normalScale  ?? 1.0;
     this.specularMap  = opts.specularMap  ?? null;
   }
+
+  /** 克隆 Phong 材质（Vec3 属性深拷贝，Texture 引用共享） */
+  clone(): PhongMaterial {
+    const m = new PhongMaterial({
+      ambient:     vec3(this.ambient[0],  this.ambient[1],  this.ambient[2]),
+      diffuse:     vec3(this.diffuse[0],  this.diffuse[1],  this.diffuse[2]),
+      specular:    vec3(this.specular[0], this.specular[1], this.specular[2]),
+      shininess:   this.shininess,
+      map:         this.map          ?? undefined,
+      emissive:    vec3(this.emissive[0], this.emissive[1], this.emissive[2]),
+      emissiveMap: this.emissiveMap  ?? undefined,
+      normalMap:   this.normalMap    ?? undefined,
+      normalScale: this.normalScale,
+      specularMap: this.specularMap  ?? undefined,
+    });
+    m.opacity     = this.opacity;
+    m.transparent = this.transparent;
+    return m;
+  }
 }
