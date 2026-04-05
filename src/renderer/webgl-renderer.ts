@@ -14,7 +14,7 @@ import { SpotLight } from '../core/spot-light';
 import { Mesh } from './mesh';
 import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
-import { Material } from './material';
+import { Material, Side } from './material';
 import { TextureMaterial } from './texture-material';
 import { Texture } from './texture';
 import { PhongMaterial } from './phong-material';
@@ -545,7 +545,37 @@ export class WebGLRenderer {
       return;
     }
 
+    // visible=false 跳过渲染
+    if (!mesh.material.visible) return;
+
     const gl = this.gl;
+    const mat = mesh.material;
+
+    // 配置 face culling
+    switch (mat.side) {
+      case Side.Front:
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+        break;
+      case Side.Back:
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);
+        break;
+      case Side.Double:
+        gl.disable(gl.CULL_FACE);
+        break;
+    }
+
+    // 配置深度写入
+    gl.depthMask(mat.depthWrite);
+
+    // 配置深度测试
+    if (mat.depthTest) {
+      gl.enable(gl.DEPTH_TEST);
+    } else {
+      gl.disable(gl.DEPTH_TEST);
+    }
+
     const compiled  = this._getProgram(mesh.material);
     const uploaded  = this._getGeometry(mesh.geometry);
 
@@ -739,6 +769,12 @@ export class WebGLRenderer {
     } else {
       gl.drawArrays(gl.TRIANGLES, 0, uploaded.vertexCount);
     }
+
+    // 恢复默认 GL 状态，避免状态泄漏
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
   }
 
   private _drawSkinnedMesh(mesh: SkinnedMesh, viewProj: Mat4): void {
