@@ -32,6 +32,10 @@ interface PhongLocations {
   uShininess: WebGLUniformLocation | null;
   uMap: WebGLUniformLocation | null;
   uHasMap: WebGLUniformLocation | null;
+  // 自发光
+  uEmissive: WebGLUniformLocation | null;
+  uEmissiveMap: WebGLUniformLocation | null;
+  uHasEmissiveMap: WebGLUniformLocation | null;
   // 多方向光
   uNumDirLights: WebGLUniformLocation | null;
   uDirLightDirs: Array<WebGLUniformLocation | null>;
@@ -339,6 +343,9 @@ export class WebGLRenderer {
         uShininess:         gl.getUniformLocation(program, 'u_shininess'),
         uMap:               gl.getUniformLocation(program, 'u_map'),
         uHasMap:            gl.getUniformLocation(program, 'u_hasMap'),
+        uEmissive:          gl.getUniformLocation(program, 'u_emissive'),
+        uEmissiveMap:       gl.getUniformLocation(program, 'u_emissiveMap'),
+        uHasEmissiveMap:    gl.getUniformLocation(program, 'u_hasEmissiveMap'),
         uNumDirLights:      gl.getUniformLocation(program, 'u_numDirLights'),
         uDirLightDirs:      dirDirs,
         uDirLightColors:    dirColors,
@@ -603,6 +610,18 @@ export class WebGLRenderer {
         }
       } else {
         if (phong.uHasMap) gl.uniform1f(phong.uHasMap, 0.0);
+      }
+
+      // 自发光
+      if (phong.uEmissive) gl.uniform3fv(phong.uEmissive, mat.emissive);
+      if (mat.emissiveMap != null) {
+        const webglTex = this._getWebGLTexture(mat.emissiveMap);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, webglTex);
+        if (phong.uEmissiveMap)    gl.uniform1i(phong.uEmissiveMap, 1);
+        if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 1.0);
+      } else {
+        if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 0.0);
       }
     }
 
