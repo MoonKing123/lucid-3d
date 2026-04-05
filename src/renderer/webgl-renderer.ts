@@ -26,6 +26,8 @@ import { Sprite, SpriteMaterial } from './sprite';
 import { type RenderInfo, createRenderInfo, resetRenderInfo } from './render-info';
 import { CubeTexture } from './cube-texture';
 import { SkyboxRenderer } from './skybox';
+import { ParticleEmitter } from './particle-emitter';
+import { ParticleRenderer } from './particle-renderer';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -309,6 +311,7 @@ export class WebGLRenderer {
   private spriteProgramCache: WeakMap<SpriteMaterial, SpriteProgramInfo> = new WeakMap();
   private spriteQuad: SpriteQuad | null = null;
   private skyboxRenderer: SkyboxRenderer | null = null;
+  private particleCache: WeakMap<ParticleEmitter, ParticleRenderer> = new WeakMap();
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -423,6 +426,7 @@ export class WebGLRenderer {
 
     const lines: Line[] = [];
     const sprites: Sprite[] = [];
+    const emitters: ParticleEmitter[] = [];
     const meshItems: MeshRenderItem[] = [];
 
     scene.traverse((node) => {
@@ -446,6 +450,8 @@ export class WebGLRenderer {
         lines.push(node);
       } else if (node instanceof Sprite) {
         sprites.push(node);
+      } else if (node instanceof ParticleEmitter) {
+        emitters.push(node);
       }
     });
 
@@ -467,6 +473,18 @@ export class WebGLRenderer {
     }
     for (const sprite of sprites) {
       this._drawSprite(sprite, camera);
+    }
+
+    // 粒子最后渲染（在所有不透明、透明、线条、精灵之后）
+    for (const emitter of emitters) {
+      if (!emitter.visible || emitter.activeCount === 0) continue;
+      let particleRenderer = this.particleCache.get(emitter);
+      if (!particleRenderer) {
+        particleRenderer = new ParticleRenderer(gl, emitter.options.maxParticles);
+        this.particleCache.set(emitter, particleRenderer);
+      }
+      particleRenderer.update(emitter);
+      particleRenderer.render(viewProj);
     }
 
     this.info.frameTime = performance.now() - _startTime;
