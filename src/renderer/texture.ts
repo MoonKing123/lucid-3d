@@ -3,10 +3,36 @@
  * 支持从原始 RGBA 数据构造，以及工厂方法创建常用纹理。
  */
 
+export enum TextureWrap {
+  ClampToEdge    = 'clamp',
+  Repeat         = 'repeat',
+  MirroredRepeat = 'mirror',
+}
+
+export enum TextureFilter {
+  Nearest              = 'nearest',
+  Linear               = 'linear',
+  NearestMipmapNearest = 'nearest-mipmap-nearest',
+  NearestMipmapLinear  = 'nearest-mipmap-linear',
+  LinearMipmapNearest  = 'linear-mipmap-nearest',
+  LinearMipmapLinear   = 'linear-mipmap-linear',
+}
+
 export class Texture {
   readonly width: number;
   readonly height: number;
   readonly data: Uint8Array;
+
+  wrapS: TextureWrap   = TextureWrap.ClampToEdge;
+  wrapT: TextureWrap   = TextureWrap.ClampToEdge;
+  minFilter: TextureFilter = TextureFilter.Nearest;
+  magFilter: TextureFilter = TextureFilter.Nearest;
+  generateMipmaps: boolean = false;
+  flipY: boolean = false;
+
+  private _version: number = 0;
+  get version(): number { return this._version; }
+  needsUpdate(): void { this._version++; }
 
   private constructor(width: number, height: number, data: Uint8Array) {
     this.width  = width;
