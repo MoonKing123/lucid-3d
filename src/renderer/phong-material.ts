@@ -1,29 +1,35 @@
 /**
  * PhongMaterial — Blinn-Phong 光照材质
+ * 支持：漫反射贴图、自发光、多光源
  */
 
 import { type Vec3, vec3 } from '../math/vec3';
 import { Material } from './material';
+import { Texture } from './texture';
 
 const PHONG_VERTEX_SHADER = `
   attribute vec3 a_position;
   attribute vec3 a_normal;
+  attribute vec2 a_uv;
   uniform mat4 u_mvp;
   uniform mat4 u_modelMatrix;
   uniform mat3 u_normalMatrix;
   varying vec3 v_normal;
   varying vec3 v_worldPos;
+  varying vec2 v_uv;
 
   void main() {
     vec4 worldPos = u_modelMatrix * vec4(a_position, 1.0);
     v_worldPos = worldPos.xyz;
     v_normal = u_normalMatrix * a_normal;
+    v_uv = a_uv;
     gl_Position = u_mvp * vec4(a_position, 1.0);
   }
 `;
 
 const PHONG_FRAGMENT_SHADER = `
   precision mediump float;
+  // 单方向光（向后兼容）
   uniform vec3 u_lightDir;
   uniform vec3 u_lightColor;
   uniform vec3 u_ambientColor;
@@ -31,8 +37,26 @@ const PHONG_FRAGMENT_SHADER = `
   uniform vec3 u_diffuse;
   uniform vec3 u_specular;
   uniform float u_shininess;
+  // 多方向光数组
+  uniform int u_numDirLights;
+  uniform vec3 u_dirLightDirs[4];
+  uniform vec3 u_dirLightColors[4];
+  // 点光源数组
+  uniform int u_numPointLights;
+  uniform vec3 u_pointLightPositions[4];
+  uniform vec3 u_pointLightColors[4];
+  uniform float u_pointLightDistances[4];
+  uniform float u_pointLightDecays[4];
+  // 漫反射贴图
+  uniform sampler2D u_map;
+  uniform float u_hasMap;
+  // 自发光
+  uniform vec3 u_emissive;
+  uniform sampler2D u_emissiveMap;
+  uniform float u_hasEmissiveMap;
   varying vec3 v_normal;
   varying vec3 v_worldPos;
+  varying vec2 v_uv;
 
   void main() {
     vec3 N = normalize(v_normal);
@@ -43,11 +67,19 @@ const PHONG_FRAGMENT_SHADER = `
     float diff = max(dot(N, L), 0.0);
     float spec = pow(max(dot(N, H), 0.0), u_shininess);
 
-    vec3 ambient  = u_ambientColor * u_diffuse;
-    vec3 diffuse  = u_lightColor * u_diffuse * diff;
+    vec3 baseDiffuse = u_hasMap > 0.5
+      ? texture2D(u_map, v_uv).rgb * u_diffuse
+      : u_diffuse;
+
+    vec3 ambient  = u_ambientColor * baseDiffuse;
+    vec3 diffuse  = u_lightColor * baseDiffuse * diff;
     vec3 specular = u_lightColor * u_specular * spec;
 
-    gl_FragColor = vec4(ambient + diffuse + specular, 1.0);
+    vec3 emissiveColor = u_hasEmissiveMap > 0.5
+      ? u_emissive * texture2D(u_emissiveMap, v_uv).rgb
+      : u_emissive;
+
+    gl_FragColor = vec4(ambient + diffuse + specular + emissiveColor, 1.0);
   }
 `;
 
@@ -56,6 +88,9 @@ export interface PhongMaterialOptions {
   diffuse?: Vec3;
   specular?: Vec3;
   shininess?: number;
+  map?: Texture;
+  emissive?: Vec3;
+  emissiveMap?: Texture;
 }
 
 export class PhongMaterial extends Material {
@@ -63,15 +98,21 @@ export class PhongMaterial extends Material {
   diffuse: Vec3;
   specular: Vec3;
   shininess: number;
+  map: Texture | null;
+  emissive: Vec3;
+  emissiveMap: Texture | null;
 
   constructor(opts: PhongMaterialOptions = {}) {
     super({
       vertexShader: PHONG_VERTEX_SHADER,
       fragmentShader: PHONG_FRAGMENT_SHADER,
     });
-    this.ambient   = opts.ambient   ?? vec3(0.1, 0.1, 0.1);
-    this.diffuse   = opts.diffuse   ?? vec3(0.8, 0.8, 0.8);
-    this.specular  = opts.specular  ?? vec3(1.0, 1.0, 1.0);
-    this.shininess = opts.shininess ?? 32;
+    this.ambient      = opts.ambient      ?? vec3(0.1, 0.1, 0.1);
+    this.diffuse      = opts.diffuse      ?? vec3(0.8, 0.8, 0.8);
+    this.specular     = opts.specular     ?? vec3(1.0, 1.0, 1.0);
+    this.shininess    = opts.shininess    ?? 32;
+    this.map          = opts.map          ?? null;
+    this.emissive     = opts.emissive     ?? vec3(0, 0, 0);
+    this.emissiveMap  = opts.emissiveMap  ?? null;
   }
 }
