@@ -3,6 +3,12 @@
  * Provides sensible defaults for vertex-colored 3D rendering with MVP transform.
  */
 
+export enum Side {
+  Front  = 'front',
+  Back   = 'back',
+  Double = 'double',
+}
+
 const DEFAULT_VERTEX_SHADER = `
   attribute vec3 a_position;
   attribute vec3 a_color;
@@ -31,6 +37,14 @@ export class Material {
   opacity: number;
   /** 是否启用透明渲染，默认 false */
   transparent: boolean;
+  /** 渲染面，默认 Front（仅渲染正面） */
+  side: Side = Side.Front;
+  /** 是否写入深度缓冲，默认 true */
+  depthWrite: boolean = true;
+  /** 是否启用深度测试，默认 true */
+  depthTest: boolean = true;
+  /** 是否渲染该材质的 mesh，默认 true */
+  visible: boolean = true;
 
   constructor(opts?: { vertexShader?: string; fragmentShader?: string }) {
     this.vertexShader   = opts?.vertexShader   ?? DEFAULT_VERTEX_SHADER;

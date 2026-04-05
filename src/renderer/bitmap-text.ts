@@ -169,10 +169,10 @@ export class BitmapText extends Mesh {
         uvs[ui + 4] = u1; uvs[ui + 5] = v1;
         uvs[ui + 6] = u0; uvs[ui + 7] = v1;
 
-        // 2 个三角形（CCW winding）
+        // 2 个三角形（CCW winding，从相机 +Z 方向观察）
         const ii = qi * 6;
-        indices[ii + 0] = vi + 0; indices[ii + 1] = vi + 1; indices[ii + 2] = vi + 2;
-        indices[ii + 3] = vi + 0; indices[ii + 4] = vi + 2; indices[ii + 5] = vi + 3;
+        indices[ii + 0] = vi + 0; indices[ii + 1] = vi + 2; indices[ii + 2] = vi + 1;
+        indices[ii + 3] = vi + 0; indices[ii + 4] = vi + 3; indices[ii + 5] = vi + 2;
 
         qi++;
       }

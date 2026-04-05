@@ -106,8 +106,8 @@ export function createSphereGeometry(
       const b = (ih + 1) * (wSeg + 1) + iw;
       const c = (ih + 1) * (wSeg + 1) + (iw + 1);
       const d = ih * (wSeg + 1) + (iw + 1);
-      indices[ii++] = a; indices[ii++] = b; indices[ii++] = d;
-      indices[ii++] = b; indices[ii++] = c; indices[ii++] = d;
+      indices[ii++] = a; indices[ii++] = d; indices[ii++] = b;
+      indices[ii++] = b; indices[ii++] = d; indices[ii++] = c;
     }
   }
 
