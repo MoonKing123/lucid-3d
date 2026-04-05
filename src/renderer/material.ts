@@ -3,6 +3,13 @@
  * Provides sensible defaults for vertex-colored 3D rendering with MVP transform.
  */
 
+export enum BlendMode {
+  None     = 'none',     // gl.disable(BLEND) — 完全不透明
+  Normal   = 'normal',   // SRC_ALPHA, ONE_MINUS_SRC_ALPHA — 标准 alpha 混合
+  Additive = 'additive', // SRC_ALPHA, ONE — 发光叠加
+  Multiply = 'multiply', // DST_COLOR, ZERO — 颜色相乘
+}
+
 export enum Side {
   Front  = 'front',
   Back   = 'back',
@@ -45,12 +52,27 @@ export class Material {
   depthTest: boolean = true;
   /** 是否渲染该材质的 mesh，默认 true */
   visible: boolean = true;
+  /** 混合模式，默认 None（不透明） */
+  blendMode: BlendMode = BlendMode.None;
 
   constructor(opts?: { vertexShader?: string; fragmentShader?: string }) {
     this.vertexShader   = opts?.vertexShader   ?? DEFAULT_VERTEX_SHADER;
     this.fragmentShader = opts?.fragmentShader ?? DEFAULT_FRAGMENT_SHADER;
     this.opacity      = 1;
     this.transparent  = false;
+  }
+
+  /**
+   * 解析实际生效的混合模式。
+   * 规则：
+   * - 如果 blendMode !== None → 返回 blendMode（显式设置优先）
+   * - 如果 transparent === true 且 blendMode === None → 返回 Normal（向后兼容）
+   * - 否则 → 返回 None
+   */
+  effectiveBlendMode(): BlendMode {
+    if (this.blendMode !== BlendMode.None) return this.blendMode;
+    if (this.transparent) return BlendMode.Normal;
+    return BlendMode.None;
   }
 
   /** 克隆材质（拷贝 shader source + opacity/transparent 属性） */

@@ -14,7 +14,7 @@ import { SpotLight } from '../core/spot-light';
 import { Mesh } from './mesh';
 import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
-import { Material, Side } from './material';
+import { Material, Side, BlendMode } from './material';
 import { TextureMaterial } from './texture-material';
 import { Texture } from './texture';
 import { PhongMaterial } from './phong-material';
@@ -576,6 +576,25 @@ export class WebGLRenderer {
       gl.disable(gl.DEPTH_TEST);
     }
 
+    // 配置混合模式
+    switch (mat.effectiveBlendMode()) {
+      case BlendMode.None:
+        gl.disable(gl.BLEND);
+        break;
+      case BlendMode.Normal:
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        break;
+      case BlendMode.Additive:
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        break;
+      case BlendMode.Multiply:
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.DST_COLOR, gl.ZERO);
+        break;
+    }
+
     const compiled  = this._getProgram(mesh.material);
     const uploaded  = this._getGeometry(mesh.geometry);
 
@@ -632,8 +651,6 @@ export class WebGLRenderer {
       }
       const uColor = gl.getUniformLocation(compiled.program, 'u_color');
       gl.uniform3fv(uColor, btMat.color);
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     }
 
     // PhongMaterial 专用：绑定法线 + 传递光照 uniforms
