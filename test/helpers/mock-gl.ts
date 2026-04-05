@@ -91,6 +91,7 @@ export function createMockGL(): MockGL & WebGLRenderingContext {
   const LINEAR              = 0x2601;
   const CLAMP_TO_EDGE       = 0x812F;
   const REPEAT              = 0x2901;
+  const MIRRORED_REPEAT     = 0x8370;
   const SRC_ALPHA           = 0x0302;
   const ONE_MINUS_SRC_ALPHA = 0x0303;
   const ONE                 = 0x0001;
@@ -146,7 +147,7 @@ export function createMockGL(): MockGL & WebGLRenderingContext {
     TEXTURE_2D, TEXTURE0,
     RGBA, RGB, LUMINANCE, ALPHA,
     TEXTURE_MIN_FILTER, TEXTURE_MAG_FILTER, TEXTURE_WRAP_S, TEXTURE_WRAP_T,
-    NEAREST, LINEAR, CLAMP_TO_EDGE, REPEAT,
+    NEAREST, LINEAR, CLAMP_TO_EDGE, REPEAT, MIRRORED_REPEAT,
     SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ZERO, SRC_COLOR, DST_COLOR,
     DST_ALPHA, ONE_MINUS_DST_ALPHA, FUNC_ADD,
     LESS, LEQUAL, GREATER, GEQUAL, EQUAL, NOTEQUAL, ALWAYS, NEVER,

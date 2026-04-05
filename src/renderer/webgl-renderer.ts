@@ -18,11 +18,12 @@ import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
 import { Material, Side, BlendMode } from './material';
 import { TextureMaterial } from './texture-material';
-import { Texture } from './texture';
+import { Texture, TextureWrap, TextureFilter } from './texture';
 import { PhongMaterial } from './phong-material';
 import { BitmapTextMaterial } from './bitmap-text';
 import { Line, LineMaterial } from './line-renderer';
 import { Sprite, SpriteMaterial } from './sprite';
+import { type RenderInfo, createRenderInfo, resetRenderInfo } from './render-info';
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -299,7 +300,8 @@ export class WebGLRenderer {
   // Caches keyed by object identity
   private programCache: WeakMap<Material, CompiledProgram> = new WeakMap();
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
-  private textureCache: WeakMap<Texture, WebGLTexture> = new WeakMap();
+  private textureCache: WeakMap<Texture, { glTex: WebGLTexture; version: number }> = new WeakMap();
+  readonly info: RenderInfo = createRenderInfo();
   private skinningProgram: SkinningProgram | null = null;
   private lineProgramCache: WeakMap<LineMaterial, LineProgramInfo> = new WeakMap();
   private spriteProgramCache: WeakMap<SpriteMaterial, SpriteProgramInfo> = new WeakMap();
@@ -323,6 +325,8 @@ export class WebGLRenderer {
    */
   render(scene: Scene, camera: Camera): void {
     const gl = this.gl;
+    const _startTime = performance.now();
+    resetRenderInfo(this.info);
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     const bg = scene.background;
@@ -449,6 +453,8 @@ export class WebGLRenderer {
     for (const sprite of sprites) {
       this._drawSprite(sprite, camera);
     }
+
+    this.info.frameTime = performance.now() - _startTime;
   }
 
   /** Release all GPU resources. */
@@ -457,26 +463,87 @@ export class WebGLRenderer {
     // Nothing else to clean up explicitly without iterating all cached entries.
   }
 
-  private _getWebGLTexture(texture: Texture): WebGLTexture {
-    const cached = this.textureCache.get(texture);
-    if (cached) return cached;
-
+  private _applyTextureSamplingParams(texture: Texture): void {
     const gl = this.gl;
-    const webglTex = gl.createTexture();
-    if (!webglTex) throw new Error('Failed to create WebGL texture');
 
-    gl.bindTexture(gl.TEXTURE_2D, webglTex);
+    // wrapS
+    const wrapSMap: Record<TextureWrap, number> = {
+      [TextureWrap.ClampToEdge]:    gl.CLAMP_TO_EDGE,
+      [TextureWrap.Repeat]:         gl.REPEAT,
+      [TextureWrap.MirroredRepeat]: (gl as any).MIRRORED_REPEAT ?? 0x8370,
+    };
+    // wrapT
+    const wrapTMap: Record<TextureWrap, number> = {
+      [TextureWrap.ClampToEdge]:    gl.CLAMP_TO_EDGE,
+      [TextureWrap.Repeat]:         gl.REPEAT,
+      [TextureWrap.MirroredRepeat]: (gl as any).MIRRORED_REPEAT ?? 0x8370,
+    };
+    // minFilter
+    const minFilterMap: Record<TextureFilter, number> = {
+      [TextureFilter.Nearest]:              gl.NEAREST,
+      [TextureFilter.Linear]:               gl.LINEAR,
+      [TextureFilter.NearestMipmapNearest]: (gl as any).NEAREST_MIPMAP_NEAREST ?? 0x2700,
+      [TextureFilter.NearestMipmapLinear]:  (gl as any).NEAREST_MIPMAP_LINEAR  ?? 0x2702,
+      [TextureFilter.LinearMipmapNearest]:  (gl as any).LINEAR_MIPMAP_NEAREST  ?? 0x2701,
+      [TextureFilter.LinearMipmapLinear]:   (gl as any).LINEAR_MIPMAP_LINEAR   ?? 0x2703,
+    };
+    // magFilter（只支持 NEAREST / LINEAR）
+    const magFilterMap: Record<TextureFilter, number> = {
+      [TextureFilter.Nearest]:              gl.NEAREST,
+      [TextureFilter.Linear]:               gl.LINEAR,
+      [TextureFilter.NearestMipmapNearest]: gl.NEAREST,
+      [TextureFilter.NearestMipmapLinear]:  gl.LINEAR,
+      [TextureFilter.LinearMipmapNearest]:  gl.NEAREST,
+      [TextureFilter.LinearMipmapLinear]:   gl.LINEAR,
+    };
+
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapSMap[texture.wrapS]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapTMap[texture.wrapT]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilterMap[texture.minFilter]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilterMap[texture.magFilter]);
+  }
+
+  private _uploadTextureData(texture: Texture): void {
+    const gl = this.gl;
+    if (texture.flipY) {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+    }
     gl.texImage2D(
       gl.TEXTURE_2D, 0, gl.RGBA,
       texture.width, texture.height, 0,
       gl.RGBA, gl.UNSIGNED_BYTE, texture.data,
     );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (texture.generateMipmaps) {
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
+    if (texture.flipY) {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    }
+  }
 
-    this.textureCache.set(texture, webglTex);
+  private _getWebGLTexture(texture: Texture): WebGLTexture {
+    const gl = this.gl;
+    const cached = this.textureCache.get(texture);
+
+    if (cached) {
+      if (cached.version !== texture.version) {
+        // 版本变更，重新上传数据并更新采样参数
+        gl.bindTexture(gl.TEXTURE_2D, cached.glTex);
+        this._uploadTextureData(texture);
+        this._applyTextureSamplingParams(texture);
+        cached.version = texture.version;
+      }
+      return cached.glTex;
+    }
+
+    const webglTex = gl.createTexture();
+    if (!webglTex) throw new Error('Failed to create WebGL texture');
+
+    gl.bindTexture(gl.TEXTURE_2D, webglTex);
+    this._uploadTextureData(texture);
+    this._applyTextureSamplingParams(texture);
+
+    this.textureCache.set(texture, { glTex: webglTex, version: texture.version });
     return webglTex;
   }
 
@@ -928,8 +995,12 @@ export class WebGLRenderer {
     if (uploaded.indexBuffer !== null) {
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, uploaded.indexBuffer);
       gl.drawElements(gl.TRIANGLES, uploaded.indexCount, gl.UNSIGNED_SHORT, 0);
+      this.info.drawCalls++;
+      this.info.triangles += uploaded.indexCount / 3;
     } else {
       gl.drawArrays(gl.TRIANGLES, 0, uploaded.vertexCount);
+      this.info.drawCalls++;
+      this.info.triangles += uploaded.vertexCount / 3;
     }
 
     // 恢复默认 GL 状态，避免状态泄漏
