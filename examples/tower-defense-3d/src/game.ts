@@ -21,103 +21,97 @@ const INITIAL_GOLD = 200;
 const MAX_LIVES = 20;
 const KILL_GOLD = 10;
 
+export type GameInit = HTMLCanvasElement | { headless: true };
+
 export class Game {
-  private scene: Scene;
-  private cameraRig: CameraRig;
-  private renderer: WebGLRenderer;
-  private loop: GameLoop;
-  private input: InputManager;
+  // 渲染相关（headless 模式下为 null）
+  private scene: Scene | null = null;
+  private cameraRig: CameraRig | null = null;
+  private renderer: WebGLRenderer | null = null;
+  private loop: GameLoop | null = null;
+  private input: InputManager | null = null;
+  private picker: Picker | null = null;
+  private palette: TowerPalette | null = null;
+
+  // 游戏逻辑（始终存在，对外公开）
   private map: Map;
-  private waveSpawner: WaveSpawner;
-  private towerManager: TowerManager;
-  private picker: Picker;
-  private hud: HUD;
-  private palette: TowerPalette;
+  readonly spawner: WaveSpawner;
+  readonly towerManager: TowerManager;
   private gameOverMenu: GameOverMenu;
+  readonly hud: HUD;
+
   lives: number = MAX_LIVES;
   gold: number = INITIAL_GOLD;
 
-  constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl', {
-      antialias: false,
-      preserveDrawingBuffer: true,
-    });
-    if (!gl) throw new Error('WebGL 不可用');
-
-    this.scene = new Scene({ background: vec3(0.1, 0.12, 0.15) });
-    this.renderer = new WebGLRenderer(gl);
-    this.input = new InputManager(canvas);
+  constructor(init: GameInit) {
+    // 通过检测 headless 属性判断模式，避免在 Node.js 中访问 HTMLCanvasElement
+    const headless = (init as any).headless === true;
 
     this.map = new Map({ width: 12, height: 12, cellSize: 1 });
-    this.scene.addChild(this.map.node);
 
     const waves: Wave[] = [
       { count: 5, interval: 1.0, enemyHealth: 100 },
       { count: 8, interval: 0.8, enemyHealth: 150 },
       { count: 10, interval: 0.5, enemyHealth: 200 },
     ];
-    this.waveSpawner = new WaveSpawner(this.map, waves);
+    this.spawner = new WaveSpawner(this.map, waves);
     this.towerManager = new TowerManager(this.map);
 
-    this.cameraRig = new CameraRig({
-      aspect: canvas.width / canvas.height,
-      input: this.input,
-    });
-    this.scene.addChild(this.cameraRig.camera);
+    const w = headless ? 800 : (init as HTMLCanvasElement).width;
+    const h = headless ? 600 : (init as HTMLCanvasElement).height;
 
-    this.picker = new Picker(this.cameraRig.camera, this.map);
-
-    // UI 初始化
-    const w = canvas.width;
-    const h = canvas.height;
     this.hud = new HUD({ width: w, height: h, maxLives: MAX_LIVES });
     this.hud.setGold(INITIAL_GOLD);
     this.hud.setLives(MAX_LIVES);
 
-    this.palette = new TowerPalette({ x: w / 2 - 72, y: h - 96 });
-
     this.gameOverMenu = new GameOverMenu({ width: w, height: h });
     this.gameOverMenu.onRestart = () => this.restart();
 
-    this.loop = new GameLoop();
-    this.loop.onUpdate = (dt) => this.update(dt);
-    this.loop.onRender = () => this.render();
+    if (!headless) {
+      const canvas = init as HTMLCanvasElement;
+      // 提前验证 WebGL 可用性（WebGLRenderer 会在内部再次获取 context）
+      if (!canvas.getContext('webgl')) throw new Error('WebGL 不可用');
+
+      this.scene = new Scene({ background: vec3(0.1, 0.12, 0.15) });
+      this.scene.addChild(this.map.node);
+      this.renderer = new WebGLRenderer(canvas);
+      this.input = new InputManager(canvas);
+
+      this.cameraRig = new CameraRig({
+        aspect: canvas.width / canvas.height,
+        input: this.input,
+      });
+      this.scene.addChild(this.cameraRig.camera);
+
+      this.picker = new Picker(this.cameraRig.camera, this.map);
+      this.palette = new TowerPalette({ x: w / 2 - 72, y: h - 96 });
+
+      this.loop = new GameLoop();
+      this.loop.onUpdate = (dt) => this.update(dt);
+      this.loop.onRender = () => this.render();
+    }
   }
 
   start(): void {
-    this.loop.start();
+    this.loop?.start();
   }
 
   stop(): void {
-    this.loop.stop();
+    this.loop?.stop();
   }
 
-  /** 手动推进一帧（测试用） */
-  step(dt: number): void {
-    this.update(dt);
-    this.render();
-  }
-
-  private restart(): void {
-    this.lives = MAX_LIVES;
-    this.gold = INITIAL_GOLD;
-    this.hud.setLives(MAX_LIVES);
-    this.hud.setGold(INITIAL_GOLD);
-    this.hud.setWave(0);
-    this.gameOverMenu.hide();
-  }
-
-  private update(dt: number): void {
+  /** 推进一帧游戏逻辑（headless 压力测试 / 手动 step 用） */
+  update(dt: number): void {
     if (this.gameOverMenu.visible) return;
 
-    this.cameraRig.update(dt);
-    this.waveSpawner.update(dt);
+    this.cameraRig?.update(dt);
+    this.spawner.update(dt);
 
     // 同步当前波次到 HUD
-    this.hud.setWave((this.waveSpawner as any).currentWave);
+    this.hud.setWave(this.spawner.currentWave);
 
     // 到达终点的敌人扣 lives
-    for (const enemy of this.waveSpawner.enemies) {
+    for (const enemy of this.spawner.enemies) {
       if (enemy.reachedEnd && !enemy.dead) {
         if (this.lives > 0) {
           this.lives--;
@@ -125,7 +119,7 @@ export class Game {
         }
         enemy.dead = true;
       }
-      // 被击杀的敌人奖励金币（已 dead 且 health <= 0）
+      // 被击杀的敌人奖励金币
       if (enemy.dead && enemy.health <= 0 && !(enemy as any)._goldAwarded) {
         (enemy as any)._goldAwarded = true;
         this.gold += KILL_GOLD;
@@ -140,11 +134,23 @@ export class Game {
   }
 
   private render(): void {
-    this.renderer.render(this.scene, this.cameraRig.camera);
+    if (this.renderer && this.scene && this.cameraRig) {
+      this.renderer.render(this.scene, this.cameraRig.camera);
+    }
+  }
+
+  private restart(): void {
+    this.lives = MAX_LIVES;
+    this.gold = INITIAL_GOLD;
+    this.hud.setLives(MAX_LIVES);
+    this.hud.setGold(INITIAL_GOLD);
+    this.hud.setWave(0);
+    this.gameOverMenu.hide();
   }
 
   /** 通过 NDC 坐标放置当前选中类型的塔（如金币不足则忽略） */
   tryPlaceTower(ndcX: number, ndcY: number): boolean {
+    if (!this.picker || !this.palette) return false;
     const hit = this.picker.pickAtNDC(ndcX, ndcY);
     if (!hit) return false;
 
@@ -157,7 +163,7 @@ export class Game {
 
     this.gold -= cost;
     this.hud.setGold(this.gold);
-    this.scene.addChild(tower.node);
+    this.scene?.addChild(tower.node);
     return true;
   }
 }

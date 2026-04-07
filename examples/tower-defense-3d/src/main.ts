@@ -20,3 +20,5 @@ game.start();
 
 // 暴露 game 实例供调试和测试使用
 window.__game = game;
+// 标记 canvas 已就绪，供 Playwright 等待
+canvas.dataset.ready = '1';
