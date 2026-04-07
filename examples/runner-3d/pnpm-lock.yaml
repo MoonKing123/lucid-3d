@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 devDependencies:
+  '@playwright/test':
+    specifier: 1.52.0
+    version: 1.52.0
   typescript:
     specifier: ^5.8.0
     version: 5.9.3
@@ -253,6 +256,14 @@ packages:
 
   /@jridgewell/sourcemap-codec@1.5.5:
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz}
+    dev: true
+
+  /@playwright/test@1.52.0:
+    resolution: {integrity: sha512-uh6W7sb55hl7D6vsAeA+V2p5JnlAqzhqFyF0VcJkKZXkgnFcVG9PziERRHQfPLfNGx1C292a4JqbWzhR8L4R1g==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/@playwright/test/-/test-1.52.0.tgz}
+    engines: {node: '>=18'}
+    hasBin: true
+    dependencies:
+      playwright: 1.52.0
     dev: true
 
   /@rollup/rollup-android-arm-eabi@4.60.1:
@@ -637,6 +648,14 @@ packages:
       picomatch: 4.0.4
     dev: true
 
+  /fsevents@2.3.2:
+    resolution: {integrity: sha1-ilJveLj99GI7cJ4Ll1xSwkwC/Ro=, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/fsevents/download/fsevents-2.3.2.tgz}
+    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+    os: [darwin]
+    requiresBuild: true
+    dev: true
+    optional: true
+
   /fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/fsevents/-/fsevents-2.3.3.tgz}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -685,6 +704,22 @@ packages:
   /picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/picomatch/-/picomatch-4.0.4.tgz}
     engines: {node: '>=12'}
+    dev: true
+
+  /playwright-core@1.52.0:
+    resolution: {integrity: sha512-l2osTgLXSMeuLZOML9qYODUQoPPnUsKsb5/P6LJ2e6uPKXUdPK5WYhN4z03G+YNbWmGDY4YENauNu4ZKczreHg==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/playwright-core/-/playwright-core-1.52.0.tgz}
+    engines: {node: '>=18'}
+    hasBin: true
+    dev: true
+
+  /playwright@1.52.0:
+    resolution: {integrity: sha512-JAwMNMBlxJ2oD1kce4KPtMkDeKGHQstdpFPcPH3maElAXon/QZeTvtsfXmTMRyO9TslfoYOXkSsvao2nE1ilTw==, tarball: https://artifactory.devops.xiaohongshu.com/artifactory/api/npm/npm-public/playwright/-/playwright-1.52.0.tgz}
+    engines: {node: '>=18'}
+    hasBin: true
+    dependencies:
+      playwright-core: 1.52.0
+    optionalDependencies:
+      fsevents: 2.3.2
     dev: true
 
   /postcss@8.5.8:
