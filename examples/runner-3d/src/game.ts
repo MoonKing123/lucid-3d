@@ -1,26 +1,31 @@
 import { Scene } from '../../../src/core/scene';
-import { PerspectiveCamera } from '../../../src/core/camera';
 import { WebGLRenderer } from '../../../src/renderer/webgl-renderer';
 import { GameLoop } from '../../../src/core/game-loop';
 import { InputManager } from '../../../src/core/input';
 import { CollisionWorld } from '../../../src/physics/collision';
 import { Player } from './player';
 import { Track } from './track';
+import { HUD } from './hud';
+import { createPlayerFollowCamera } from './camera-rig';
+import { FollowCamera } from '../../../src/core/follow-camera';
+import { UIButton } from '../../../src/ui/ui-button';
 import { vec3 } from '../../../src/math/vec3';
 
 export class Game {
   private scene: Scene;
-  private camera: PerspectiveCamera;
+  private camera: FollowCamera;
   private renderer: WebGLRenderer;
   private loop: GameLoop;
   private player: Player;
   private input: InputManager;
   private world: CollisionWorld;
   private track: Track;
+  private hud: HUD;
 
   // 游戏状态
   private hp = 3;
   private score = 0;
+  private paused: boolean = false;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -30,12 +35,6 @@ export class Game {
     if (!gl) throw new Error('WebGL 不可用');
 
     this.scene = new Scene({ background: vec3(0.1, 0.15, 0.2) });
-    this.camera = new PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 100);
-    this.camera.position[1] = 3;
-    this.camera.position[2] = -5;
-    this.camera.lookAt(vec3(0, 0, 0));
-    this.scene.addChild(this.camera);
-
     this.renderer = new WebGLRenderer(gl);
     this.input = new InputManager(canvas);
 
@@ -67,6 +66,27 @@ export class Game {
       }
     });
 
+    this.camera = createPlayerFollowCamera(this.player);
+    this.camera.aspect = canvas.width / canvas.height;
+    this.scene.addChild(this.camera);
+
+    this.hud = new HUD(canvas.width, canvas.height);
+    this.hud.onPauseClicked = () => { this.paused = !this.paused; };
+
+    // 路由指针事件给 HUD 按钮
+    this.input.on('pointerdown', (e) => {
+      if (e.x !== undefined && e.y !== undefined) {
+        const el = this.hud.canvas.hitTest(e.x, e.y);
+        if (el instanceof UIButton) el.handlePointerDown(e.x, e.y);
+      }
+    });
+    this.input.on('pointerup', (e) => {
+      if (e.x !== undefined && e.y !== undefined) {
+        const el = this.hud.canvas.hitTest(e.x, e.y);
+        if (el instanceof UIButton) el.handlePointerUp(e.x, e.y);
+      }
+    });
+
     this.loop = new GameLoop();
     this.loop.onUpdate = (dt) => this.update(dt);
     this.loop.onRender = () => this.render();
@@ -87,18 +107,18 @@ export class Game {
   }
 
   private update(dt: number): void {
-    this.player.update(dt);
-    // 推进碰撞检测（触发 hit-obstacle / collect-coin 回调）
-    this.world.step();
-    // 相机跟随玩家
-    this.camera.position[0] = this.player.position[0];
-    this.camera.position[1] = this.player.position[1] + 3;
-    this.camera.position[2] = this.player.position[2] - 5;
-    this.camera.lookAt(vec3(
-      this.player.position[0],
-      this.player.position[1],
-      this.player.position[2],
-    ));
+    if (!this.paused) {
+      this.player.update(dt);
+      // 推进碰撞检测（触发 hit-obstacle / collect-coin 回调）
+      this.world.step();
+    }
+    this.camera.update(dt);
+    this.hud.update({
+      score: this.score,
+      healthMax: 3,
+      healthCurrent: this.hp,
+      paused: this.paused,
+    });
   }
 
   private render(): void {
