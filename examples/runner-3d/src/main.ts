@@ -11,3 +11,5 @@ window.addEventListener('resize', () => {
 
 const game = new Game(canvas);
 game.start();
+(window as any).__game = game; // Playwright 调试 hook
+canvas.dataset.ready = '1';

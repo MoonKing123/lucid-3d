@@ -16,7 +16,7 @@ export class Game {
   private camera: FollowCamera;
   private renderer: WebGLRenderer;
   private loop: GameLoop;
-  private player: Player;
+  player: Player;
   private input: InputManager;
   private world: CollisionWorld;
   private track: Track;
@@ -28,14 +28,8 @@ export class Game {
   private paused: boolean = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl', {
-      antialias: false,
-      preserveDrawingBuffer: true,
-    });
-    if (!gl) throw new Error('WebGL 不可用');
-
     this.scene = new Scene({ background: vec3(0.1, 0.15, 0.2) });
-    this.renderer = new WebGLRenderer(gl);
+    this.renderer = new WebGLRenderer(canvas);
     this.input = new InputManager(canvas);
 
     // 创建碰撞世界和跑道
