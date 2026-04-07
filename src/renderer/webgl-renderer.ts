@@ -28,6 +28,26 @@ import { CubeTexture } from './cube-texture';
 import { SkyboxRenderer } from './skybox';
 import { ParticleEmitter } from './particle-emitter';
 import { ParticleRenderer } from './particle-renderer';
+import { type FogOptions } from '../core/scene';
+import { FOG_VERTEX_PARS, FOG_VERTEX_CODE, FOG_FRAGMENT_PARS, FOG_FRAGMENT_CODE } from './fog';
+
+// ── Fog shader injection ──────────────────────────────────────────
+
+/** 将雾效 GLSL 注入顶点着色器 */
+function injectFogVertex(src: string): string {
+  const modelMatrixDecl = src.includes('u_modelMatrix') ? '' : 'uniform mat4 u_modelMatrix;\n';
+  const pars = `${FOG_VERTEX_PARS}\n${modelMatrixDecl}`;
+  const withPars = src.replace('void main()', `${pars}\nvoid main()`);
+  const lastBrace = withPars.lastIndexOf('}');
+  return withPars.substring(0, lastBrace) + `  ${FOG_VERTEX_CODE}\n` + withPars.substring(lastBrace);
+}
+
+/** 将雾效 GLSL 注入片元着色器 */
+function injectFogFragment(src: string): string {
+  const withPars = src.replace('void main()', `${FOG_FRAGMENT_PARS}\nvoid main()`);
+  const lastBrace = withPars.lastIndexOf('}');
+  return withPars.substring(0, lastBrace) + `  ${FOG_FRAGMENT_CODE}\n` + withPars.substring(lastBrace);
+}
 
 // ── Internal GPU resource cache ──────────────────────────────────
 
@@ -70,6 +90,13 @@ interface PhongLocations {
   uSpotLightPenumbras: Array<WebGLUniformLocation | null>;
 }
 
+interface FogLocations {
+  uFogColor: WebGLUniformLocation | null;
+  uFogNear: WebGLUniformLocation | null;
+  uFogFar: WebGLUniformLocation | null;
+  uModelMatrix: WebGLUniformLocation | null;
+}
+
 interface CompiledProgram {
   program: WebGLProgram;
   aPosition: number;
@@ -77,6 +104,7 @@ interface CompiledProgram {
   aUv: number;
   uMvp: WebGLUniformLocation;
   phong?: PhongLocations;
+  fogLoc?: FogLocations;
 }
 
 interface UploadedGeometry {
@@ -303,6 +331,8 @@ export class WebGLRenderer {
 
   // Caches keyed by object identity
   private programCache: WeakMap<Material, CompiledProgram> = new WeakMap();
+  // 雾效变体缓存（同一材质的雾效版本单独缓存）
+  private fogProgramCache: WeakMap<Material, CompiledProgram> = new WeakMap();
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
   private textureCache: WeakMap<Texture, { glTex: WebGLTexture; version: number }> = new WeakMap();
   readonly info: RenderInfo = createRenderInfo();
@@ -460,11 +490,11 @@ export class WebGLRenderer {
 
     // 先绘制不透明网格
     for (const item of queue.opaque) {
-      this._drawMesh(item.mesh, viewProj, lightCtx);
+      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog);
     }
     // 再绘制透明网格
     for (const item of queue.transparent) {
-      this._drawMesh(item.mesh, viewProj, lightCtx);
+      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog);
     }
 
     // Line 和 Sprite 在所有 Mesh 之后渲染（叠加行为）
@@ -582,13 +612,16 @@ export class WebGLRenderer {
 
   // ── Private helpers ─────────────────────────────────────────────
 
-  private _getProgram(material: Material): CompiledProgram {
-    const cached = this.programCache.get(material);
+  private _getProgram(material: Material, hasFog = false): CompiledProgram {
+    const cache = hasFog ? this.fogProgramCache : this.programCache;
+    const cached = cache.get(material);
     if (cached) return cached;
 
     const gl = this.gl;
-    const vs = compileShader(gl, gl.VERTEX_SHADER, material.vertexShader);
-    const fs = compileShader(gl, gl.FRAGMENT_SHADER, material.fragmentShader);
+    const vsSource = hasFog ? injectFogVertex(material.vertexShader) : material.vertexShader;
+    const fsSource = hasFog ? injectFogFragment(material.fragmentShader) : material.fragmentShader;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
     const program = createProgram(gl, vs, fs);
 
     // Clean up individual shaders after linking
@@ -672,7 +705,16 @@ export class WebGLRenderer {
       };
     }
 
-    this.programCache.set(material, compiled);
+    if (hasFog) {
+      compiled.fogLoc = {
+        uFogColor:    gl.getUniformLocation(program, 'u_fogColor'),
+        uFogNear:     gl.getUniformLocation(program, 'u_fogNear'),
+        uFogFar:      gl.getUniformLocation(program, 'u_fogFar'),
+        uModelMatrix: gl.getUniformLocation(program, 'u_modelMatrix'),
+      };
+    }
+
+    cache.set(material, compiled);
     return compiled;
   }
 
@@ -783,7 +825,7 @@ export class WebGLRenderer {
     return this.skinningProgram;
   }
 
-  private _drawMesh(mesh: Mesh, viewProj: Mat4, lightCtx: LightContext): void {
+  private _drawMesh(mesh: Mesh, viewProj: Mat4, lightCtx: LightContext, fog: FogOptions | null = null): void {
     // SkinnedMesh 走专用蒙皮路径
     if (mesh instanceof SkinnedMesh) {
       this._drawSkinnedMesh(mesh, viewProj);
@@ -840,7 +882,9 @@ export class WebGLRenderer {
         break;
     }
 
-    const compiled  = this._getProgram(mesh.material);
+    // BitmapTextMaterial 不应用雾效
+    const applyFog = fog !== null && !(mesh.material instanceof BitmapTextMaterial);
+    const compiled  = this._getProgram(mesh.material, applyFog);
     const uploaded  = this._getGeometry(mesh.geometry);
 
     // MVP = viewProjection * worldMatrix
@@ -1022,6 +1066,16 @@ export class WebGLRenderer {
       } else {
         if (phong.uHasSpecularMap) gl.uniform1f(phong.uHasSpecularMap, 0.0);
       }
+    }
+
+    // 上传雾效 uniforms
+    if (applyFog && fog !== null && compiled.fogLoc) {
+      const f = compiled.fogLoc;
+      const c = fog.color;
+      if (f.uFogColor) gl.uniform3f(f.uFogColor, c[0], c[1], c[2]);
+      if (f.uFogNear)  gl.uniform1f(f.uFogNear, fog.near);
+      if (f.uFogFar)   gl.uniform1f(f.uFogFar, fog.far);
+      if (f.uModelMatrix) gl.uniformMatrix4fv(f.uModelMatrix, false, mesh.worldMatrix);
     }
 
     // Draw
