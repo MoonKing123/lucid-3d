@@ -9,7 +9,7 @@ export interface Wave {
 
 export class WaveSpawner {
   private waves: Wave[];
-  private currentWave: number = 0;
+  currentWave: number = 0;
   private spawnedInWave: number = 0;
   private timeSinceLastSpawn: number = 0;
   private map: Map;
