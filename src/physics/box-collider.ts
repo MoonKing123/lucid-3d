@@ -102,6 +102,11 @@ export class BoxCollider {
     );
   }
 
+  /** 静态工厂：center-first 风格，避免 (halfExtents, center?) 参数顺序混淆。 */
+  static fromCenter(center: Vec3, halfExtents: Vec3): BoxCollider {
+    return new BoxCollider(halfExtents, center);
+  }
+
   clone(): BoxCollider {
     return new BoxCollider(
       vec3(this.halfExtents[0], this.halfExtents[1], this.halfExtents[2]),
