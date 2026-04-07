@@ -4,6 +4,8 @@ import { InputManager } from '../../../src/core/input';
 import { CollisionWorld, SphereCollider } from '../../../src/physics/collision';
 import { vec3 } from '../../../src/math/vec3';
 import { LAYER_PLAYER, LAYER_OBSTACLE, LAYER_COIN, type CoinHandle, type Track } from './track';
+import { PlayerAnimator } from './animator';
+import { makeStubSkeleton, makeIdleClip, makeRunClip, makeJumpClip } from './anim-fixtures';
 
 type EventType = 'hit-obstacle' | 'collect-coin';
 
@@ -17,6 +19,7 @@ export interface PlayerOptions {
 export class Player {
   readonly node: Node3D;
   readonly controller: CharacterController;
+  readonly animator: PlayerAnimator;
   private input: InputManager | null;
   private _listeners: Map<EventType, Array<(data?: CoinHandle) => void>> = new Map();
 
@@ -60,6 +63,14 @@ export class Player {
         }
       });
     }
+
+    // 初始化骨骼动画（使用程序化 stub 骨架）
+    const skeleton = makeStubSkeleton();
+    this.animator = new PlayerAnimator(skeleton, {
+      idle: makeIdleClip(),
+      run: makeRunClip(),
+      jump: makeJumpClip(),
+    });
   }
 
   on(event: EventType, cb: (data?: CoinHandle) => void): void {
@@ -71,7 +82,7 @@ export class Player {
     for (const cb of this._listeners.get(event) ?? []) cb(data);
   }
 
-  /** 每帧调用：读输入 → 驱动 controller → 应用重力/碰撞 */
+  /** 每帧调用：读输入 → 驱动 controller → 更新动画状态 */
   update(dt: number): void {
     if (this.input) {
       const left = this.input.isKeyDown('ArrowLeft') || this.input.isKeyDown('a');
@@ -86,6 +97,18 @@ export class Player {
       if (jump) this.controller.jump();
     }
     this.controller.update(dt);
+
+    // 根据 controller 状态切换动画
+    const vel = this.controller.velocity;
+    const horizSpeed = Math.sqrt(vel[0] * vel[0] + vel[2] * vel[2]);
+    if (!this.controller.isGrounded) {
+      this.animator.setState('jump');
+    } else if (horizSpeed > 0.1) {
+      this.animator.setState('run');
+    } else {
+      this.animator.setState('idle');
+    }
+    this.animator.update(dt);
   }
 
   get position() { return this.node.position; }
