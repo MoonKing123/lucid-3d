@@ -5,7 +5,7 @@
  */
 import { type Vec3, vec3, add, sub, scale, length, normalize, dot } from '../math/vec3';
 import { type AABB } from '../math/aabb';
-import { type Node3D } from '../core/node3d';
+import { Node3D } from '../core/node3d';
 
 /* ---------- 公共类型 ---------- */
 
@@ -21,7 +21,7 @@ export interface CollisionEvent {
 export type CollisionCallback = (event: CollisionEvent) => void;
 
 export interface BodyOptions {
-  shape: SphereCollider;
+  shape: SphereCollider | { center: Vec3; halfExtents?: Vec3; radius?: number };
   /** 碰撞体所在层（bitmask，默认 1）。 */
   layer?: number;
   /** 检测哪些层（bitmask，默认 0xFFFFFFFF）。 */
@@ -44,9 +44,30 @@ export class SphereCollider {
   center: Vec3;
   radius: number;
 
-  constructor(radius = 1, center?: Vec3) {
-    this.radius = radius;
-    this.center = center ? vec3(center[0], center[1], center[2]) : vec3(0, 0, 0);
+  // 重载签名：旧风格 (radius, center?) 和新风格 (center, radius?)
+  constructor(radius?: number, center?: Vec3);
+  constructor(center: Vec3, radius?: number);
+  constructor(arg1?: number | Vec3, arg2?: Vec3 | number) {
+    if (typeof arg1 === 'number') {
+      // 旧风格 (radius, center?)
+      this.radius = arg1;
+      this.center = arg2 != null
+        ? vec3((arg2 as Vec3)[0], (arg2 as Vec3)[1], (arg2 as Vec3)[2])
+        : vec3(0, 0, 0);
+    } else if (arg1 != null) {
+      // 新风格 (center, radius?)
+      this.center = vec3(arg1[0], arg1[1], arg1[2]);
+      this.radius = typeof arg2 === 'number' ? arg2 : 1;
+    } else {
+      // 零参数
+      this.radius = 1;
+      this.center = vec3(0, 0, 0);
+    }
+  }
+
+  /** 静态工厂：center-first 风格，与 BoxCollider.fromCenter 保持一致。 */
+  static fromCenter(center: Vec3, radius = 1): SphereCollider {
+    return new SphereCollider(center, radius);
   }
 
   /**
@@ -159,7 +180,7 @@ export class CollisionWorld {
     }
   }
 
-  getCollider(node: Node3D): SphereCollider | undefined {
+  getCollider(node: Node3D): BodyEntry['shape'] | undefined {
     return this._bodies.get(node)?.shape;
   }
 
@@ -197,6 +218,9 @@ export class CollisionWorld {
 
         const colA = entryA.shape;
         const colB = entryB.shape;
+
+        // 碰撞事件系统只处理球体-球体对
+        if (!(colA instanceof SphereCollider) || !(colB instanceof SphereCollider)) continue;
 
         // world-space 位置 = 节点位置 + 碰撞体局部中心偏移
         const posA = add(nodeA.position, colA.center);
@@ -240,7 +264,9 @@ export class CollisionWorld {
         if (nodeA && nodeB) {
           const colA = this._bodies.get(nodeA)!.shape;
           const colB = this._bodies.get(nodeB)!.shape;
-          this._fireEvent(nodeA, nodeB, colA, colB, vec3(0, 0, 0), 'exit');
+          if (colA instanceof SphereCollider && colB instanceof SphereCollider) {
+            this._fireEvent(nodeA, nodeB, colA, colB, vec3(0, 0, 0), 'exit');
+          }
         }
       }
     }
@@ -258,7 +284,7 @@ export class CollisionWorld {
       }
       const worldPos = add(node.position, entry.shape.center);
       const dist = length(sub(worldPos, center));
-      if (dist <= radius + entry.shape.radius) {
+      if (dist <= radius + (entry.shape.radius ?? 0)) {
         results.push(node);
       }
     }
@@ -267,6 +293,24 @@ export class CollisionWorld {
 
   get size(): number {
     return this._bodies.size;
+  }
+
+  /**
+   * 添加静态碰撞体（地面/墙/障碍），自动创建内部 Node3D。
+   * 返回创建的 Node3D，便于后续 raycast/碰撞回调引用。
+   */
+  addStaticBody(
+    collider: SphereCollider | { center: Vec3; halfExtents: Vec3 },
+    options?: { layer?: number; mask?: number; isTrigger?: boolean; name?: string },
+  ): Node3D {
+    const node = new Node3D(options?.name ?? 'static-body');
+    this.addBody(node, {
+      shape: collider,
+      layer: options?.layer ?? 1,
+      mask: options?.mask ?? 0xFFFFFFFF,
+      isTrigger: options?.isTrigger ?? false,
+    });
+    return node;
   }
 
   /**
