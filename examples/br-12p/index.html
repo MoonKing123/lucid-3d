@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BR-12P — 12 人吃鸡 3D</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; cursor: none; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #crosshair {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px; height: 16px;
+      pointer-events: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.8);
+    }
+    #crosshair::before { width: 2px; height: 16px; left: 7px; top: 0; }
+    #crosshair::after  { width: 16px; height: 2px; left: 0; top: 7px; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="crosshair"></div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
