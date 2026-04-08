@@ -10,6 +10,13 @@ import { CameraRig } from './camera-rig';
 import { UnitManager } from './units';
 import { SelectionSystem } from './selection';
 import { InputSelectHandler } from './input-select';
+import { buildNavMap, type NavMap } from './nav';
+import { UnitMovementSystem } from './unit-movement';
+import { HarvestSystem } from './harvest';
+import { ResourceState } from './resource-state';
+import { createBase, createResourceNodes, type ResourceNode, type BaseBuilding } from './buildings';
+import { ResourceBar } from './hud/resource-bar';
+import { PauseMenu } from './hud/pause-menu';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -55,9 +62,17 @@ export class Game {
   private loop: GameLoop | null = null;
   private input: InputManager | null = null;
   private cameraRig: CameraRig | null = null;
-  private unitManager: UnitManager | null = null;
+  private _unitManager: UnitManager;
   private selection: SelectionSystem | null = null;
   private inputSelect: InputSelectHandler | null = null;
+  private _navMap: NavMap;
+  private _movementSystem: UnitMovementSystem;
+  private _harvestSystem: HarvestSystem;
+  private _resourceState: ResourceState;
+  private _resourceNodes: ResourceNode[];
+  private _base: BaseBuilding;
+  private _resourceBar: ResourceBar;
+  private _pauseMenu: PauseMenu;
 
   /** 已运行的帧数（供测试读取） */
   frameCount = 0;
@@ -67,7 +82,27 @@ export class Game {
 
     const { sun, ambient } = createLights();
     const terrain = createTerrain();
-    this.unitManager = new UnitManager();
+    this._unitManager = new UnitManager();
+    this._navMap = buildNavMap();
+    this._movementSystem = new UnitMovementSystem(this._unitManager, this._navMap);
+    this._resourceState = new ResourceState();
+    this._base = createBase();
+    this._resourceNodes = createResourceNodes();
+    this._harvestSystem = new HarvestSystem(
+      this._unitManager,
+      this._navMap,
+      this._resourceState,
+      this._base,
+      this._resourceNodes,
+    );
+    this._resourceBar = new ResourceBar({ width: 800, height: 600 });
+    this._pauseMenu = new PauseMenu({ width: 800, height: 600 });
+
+    // 资源变化时同步到 HUD
+    this._resourceState.events.on('resource.changed', (res) => {
+      this._resourceBar.setGold(res.gold);
+      this._resourceBar.setWood(res.wood);
+    });
 
     if (!headless) {
       const canvas = init as HTMLCanvasElement;
@@ -80,7 +115,7 @@ export class Game {
       this.scene.addChild(sun);
       this.scene.addChild(ambient);
       this.scene.addChild(terrain);
-      this.scene.addChild(this.unitManager.mesh);
+      this.scene.addChild(this._unitManager.mesh);
 
       this.renderer = new WebGLRenderer(canvas);
       this.input = new InputManager(canvas);
@@ -93,7 +128,7 @@ export class Game {
       this.scene.addChild(this.cameraRig.camera);
 
       // 选择系统
-      this.selection = new SelectionSystem(this.unitManager);
+      this.selection = new SelectionSystem(this._unitManager);
       this.inputSelect = new InputSelectHandler(canvas, this.selection, this.cameraRig.camera);
 
       this.loop = new GameLoop();
@@ -102,6 +137,7 @@ export class Game {
     } else {
       // headless：只创建逻辑对象，不涉及 WebGL
       this.cameraRig = new CameraRig({ aspect: 16 / 9 });
+      this.selection = new SelectionSystem(this._unitManager);
     }
   }
 
@@ -115,6 +151,8 @@ export class Game {
 
   update(dt: number): void {
     this.cameraRig?.update(dt, this.input ?? undefined);
+    this._movementSystem.update(dt);
+    this._harvestSystem.update(dt);
     this.frameCount++;
   }
 
@@ -127,4 +165,15 @@ export class Game {
   get camera() {
     return this.cameraRig?.camera ?? null;
   }
+
+  get unitManager(): UnitManager { return this._unitManager; }
+  get navMap(): NavMap { return this._navMap; }
+  get movementSystem(): UnitMovementSystem { return this._movementSystem; }
+  get harvestSystem(): HarvestSystem { return this._harvestSystem; }
+  get resourceState(): ResourceState { return this._resourceState; }
+  get resourceNodes(): ResourceNode[] { return this._resourceNodes; }
+  get base(): BaseBuilding { return this._base; }
+  get resourceBar(): ResourceBar { return this._resourceBar; }
+  get pauseMenu(): PauseMenu { return this._pauseMenu; }
+  get selectionSystem(): SelectionSystem | null { return this.selection; }
 }
