@@ -7,6 +7,9 @@ import { vec3 } from '../../../src/math/vec3';
 import { createTerrain } from './terrain';
 import { createLights } from './lights';
 import { CameraRig } from './camera-rig';
+import { UnitManager } from './units';
+import { SelectionSystem } from './selection';
+import { InputSelectHandler } from './input-select';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -52,6 +55,9 @@ export class Game {
   private loop: GameLoop | null = null;
   private input: InputManager | null = null;
   private cameraRig: CameraRig | null = null;
+  private unitManager: UnitManager | null = null;
+  private selection: SelectionSystem | null = null;
+  private inputSelect: InputSelectHandler | null = null;
 
   /** 已运行的帧数（供测试读取） */
   frameCount = 0;
@@ -61,6 +67,7 @@ export class Game {
 
     const { sun, ambient } = createLights();
     const terrain = createTerrain();
+    this.unitManager = new UnitManager();
 
     if (!headless) {
       const canvas = init as HTMLCanvasElement;
@@ -73,6 +80,7 @@ export class Game {
       this.scene.addChild(sun);
       this.scene.addChild(ambient);
       this.scene.addChild(terrain);
+      this.scene.addChild(this.unitManager.mesh);
 
       this.renderer = new WebGLRenderer(canvas);
       this.input = new InputManager(canvas);
@@ -83,6 +91,10 @@ export class Game {
         canvas,
       });
       this.scene.addChild(this.cameraRig.camera);
+
+      // 选择系统
+      this.selection = new SelectionSystem(this.unitManager);
+      this.inputSelect = new InputSelectHandler(canvas, this.selection, this.cameraRig.camera);
 
       this.loop = new GameLoop();
       this.loop.onUpdate = (dt) => this.update(dt);
