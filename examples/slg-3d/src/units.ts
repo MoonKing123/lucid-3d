@@ -141,6 +141,15 @@ export class UnitManager {
     }
   }
 
+  /** 更新单位世界坐标并同步到 InstancedMesh（供 NavAgent 位置同步使用） */
+  updateUnitPosition(id: number, x: number, z: number): void {
+    if (id < 0 || id >= TOTAL_UNITS) return;
+    const unit = this.units[id];
+    unit.x = x;
+    unit.z = z;
+    this._syncMatrix(id);
+  }
+
   /** 同步所有实例矩阵和颜色 */
   private _syncAll(): void {
     for (const unit of this.units) {
