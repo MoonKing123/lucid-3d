@@ -9,14 +9,25 @@ import { WebGLRenderer } from '../../../src/renderer/webgl-renderer';
 import { GameLoop } from '../../../src/core/game-loop';
 import { InputManager } from '../../../src/core/input';
 import { CollisionWorld } from '../../../src/physics/collision';
+import { EventEmitter } from '../../../src/gameplay/event-emitter';
 import { vec3 } from '../../../src/math/vec3';
 import { FPSCamera } from './fps-camera';
 import { Player } from './player';
 import { createMap } from './map';
 import { createLights } from './lights';
 import { bindInput } from './input-binding';
+import { Enemy } from './enemy';
+import { spawnEnemies } from './enemy-spawner';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
+
+/** 游戏全局事件（供 M4.2 武器命中等系统广播） */
+export type GameEvents = {
+  /** 武器命中事件：target 为被命中的 Node3D，damage 为伤害量 */
+  'weapon.hit': (target: import('../../../src/core/node3d').Node3D, damage: number) => void;
+  /** 玩家受到伤害 */
+  'player.damaged': (damage: number) => void;
+};
 
 /** headless 模式下模拟按键状态的输入实现 */
 class SimulatedInput {
@@ -38,6 +49,12 @@ export class Game {
   private readonly _world: CollisionWorld;
   private readonly _simInput: SimulatedInput;
 
+  /** 游戏全局事件总线 */
+  readonly events: EventEmitter<GameEvents>;
+
+  /** 当前存活的敌人列表 */
+  private _enemies: Enemy[] = [];
+
   /** 已运行帧数（供测试读取） */
   frameCount = 0;
 
@@ -50,6 +67,7 @@ export class Game {
     // ── 始终创建逻辑对象（headless 也需要） ──
     this._world = new CollisionWorld();
     this._simInput = new SimulatedInput();
+    this.events = new EventEmitter<GameEvents>();
 
     const { sun, ambient } = createLights();
     const map = createMap(this._world);
@@ -63,6 +81,16 @@ export class Game {
     // 统计地图中可渲染节点（地面 + 墙壁 mesh）
     map.traverse(n => {
       if (n !== map) this._drawCallCount++;
+    });
+
+    // 监听武器命中事件（M4.2 广播），转发到对应 Enemy
+    this.events.on('weapon.hit', (target, damage) => {
+      for (const enemy of this._enemies) {
+        if (enemy.node === target) {
+          enemy.applyDamage(damage);
+          break;
+        }
+      }
     });
 
     if (!headless) {
@@ -87,6 +115,23 @@ export class Game {
     }
   }
 
+  /**
+   * 在地图上生成 `count` 个敌人 NPC（默认 11）。
+   * 可多次调用（追加敌人）。
+   */
+  spawnEnemies(count = 11): void {
+    const newEnemies = spawnEnemies(
+      count,
+      this._world,
+      this._player.node,
+      (damage) => this.events.emit('player.damaged', damage),
+    );
+    for (const e of newEnemies) {
+      this._enemies.push(e);
+      this._drawCallCount++;  // 每个 Enemy 节点对应一个 drawCall
+    }
+  }
+
   start(): void {
     this._loop?.start();
   }
@@ -106,6 +151,16 @@ export class Game {
 
     this._world.step();
     this._fpsCamera.update(this._player.position);
+
+    // 更新所有敌人，清除已标记移除的
+    for (const enemy of this._enemies) {
+      enemy.update(dt);
+    }
+    // 移除已死亡超时的敌人
+    const before = this._enemies.length;
+    this._enemies = this._enemies.filter(e => !e.isRemoved);
+    const removed = before - this._enemies.length;
+    this._drawCallCount -= removed;
 
     if (this._input) {
       this._input.update();  // 清除 keysPressed
@@ -144,9 +199,12 @@ export class Game {
   get player() { return this._player; }
   get world() { return this._world; }
 
+  /** 当前存活的敌人（快照，不可直接修改） */
+  get enemies(): readonly Enemy[] { return this._enemies; }
+
   /**
    * 场景可渲染节点计数（headless 代理 drawCalls）。
-   * 等同于实际渲染时的最小 drawCall 数量（地面 + 墙壁）。
+   * 包含地图节点 + 敌人节点。
    */
   get drawCallCount() { return this._drawCallCount; }
 }
