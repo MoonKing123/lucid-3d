@@ -11,9 +11,9 @@ importers:
       '@playwright/test':
         specifier: 1.52.0
         version: 1.52.0
-      pixelmatch:
-        specifier: ^7.1.0
-        version: 7.1.0
+      pixel-buffer-diff:
+        specifier: ^1.1.0
+        version: 1.4.0
       pngjs:
         specifier: ^7.0.0
         version: 7.0.0
@@ -760,11 +760,8 @@ packages:
     engines: {node: '>=12'}
     dev: true
 
-  /pixelmatch@7.1.0:
-    resolution: {integrity: sha512-1wrVzJ2STrpmONHKBy228LM1b84msXDUoAzVEl0R8Mz4Ce6EPr+IVtxm8+yvrqLYMHswREkjYFaMxnyGnaY3Ng==}
-    hasBin: true
-    dependencies:
-      pngjs: 7.0.0
+  /pixel-buffer-diff@1.4.0:
+    resolution: {integrity: sha512-ELO02chzyRFfzYIQwNePYZ0ls3P33+b+IOP+e7/j0SlGcPjQi9QDUVnP46kvmtuwluW1tqmHjmMBQ5TLiEUcTg==}
     dev: true
 
   /playwright-core@1.52.0:

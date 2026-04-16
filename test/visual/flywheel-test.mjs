@@ -2,7 +2,8 @@
  * Lucid-3D Visual Regression Test Suite
  *
  * Auto-discovers demo pages from demos.json, takes screenshots,
- * compares with baselines using pixelmatch.
+ * compares with baselines using pixel-buffer-diff (8-10x faster than pixelmatch,
+ * zero deps, returns { diff, cumulatedDiff, hash } for richer signal).
  *
  * Usage:
  *   node test/visual/flywheel-test.mjs           # Compare against baselines
@@ -14,7 +15,7 @@ import { resolve, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { PNG } from 'pngjs';
-import pixelmatch from 'pixelmatch';
+import { diff as pbdDiff } from 'pixel-buffer-diff';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASELINE_DIR = resolve(__dirname, 'baselines');
@@ -81,18 +82,27 @@ function compareScreenshots(name, actual) {
     return { match: false, reason: `size mismatch: ${img1.width}x${img1.height} vs ${img2.width}x${img2.height}` };
   }
 
-  const diff = new PNG({ width: img1.width, height: img1.height });
-  const diffPixels = pixelmatch(img1.data, img2.data, diff.data, img1.width, img1.height, { threshold: 0.2 });
+  const diffImg = new PNG({ width: img1.width, height: img1.height });
+  // pixel-buffer-diff: threshold 跟 pixelmatch 同义（0-1, 值越小越敏感）；
+  // cumulatedThreshold 用来容忍 CI 抗锯齿差异，默认 0.5 保持 pixelmatch 行为近似一致。
+  const { diff: diffPixels, cumulatedDiff, hash } = pbdDiff(
+    img1.data, img2.data, diffImg.data,
+    img1.width, img1.height,
+    { threshold: 0.2, cumulatedThreshold: 0.5 }
+  );
   const totalPixels = img1.width * img1.height;
   const diffRatio = diffPixels / totalPixels;
 
   if (diffRatio > MAX_DIFF_RATIO) {
-    writeFileSync(resolve(DIFF_DIR, `${name}-diff.png`), PNG.sync.write(diff));
+    writeFileSync(resolve(DIFF_DIR, `${name}-diff.png`), PNG.sync.write(diffImg));
     writeFileSync(resolve(DIFF_DIR, `${name}-actual.png`), actual);
-    return { match: false, diffPixels, diffRatio, reason: `${(diffRatio * 100).toFixed(2)}% pixels differ (${diffPixels}/${totalPixels})` };
+    return {
+      match: false, diffPixels, diffRatio, cumulatedDiff, hash,
+      reason: `${(diffRatio * 100).toFixed(2)}% pixels differ (${diffPixels}/${totalPixels}, cumulatedDiff=${cumulatedDiff.toFixed(2)})`
+    };
   }
 
-  return { match: true, diffPixels, diffRatio };
+  return { match: true, diffPixels, diffRatio, cumulatedDiff, hash };
 }
 
 function test(name, result) {
@@ -153,7 +163,13 @@ try {
   const shot2 = await screenshotCanvas();
   const img1 = PNG.sync.read(shot1);
   const img2 = PNG.sync.read(shot2);
-  const detDiff = pixelmatch(img1.data, img2.data, null, img1.width, img1.height, { threshold: 0 });
+  // pixel-buffer-diff 要求 diff buffer 非 null；分配 throwaway buffer。
+  const detDiffBuf = new Uint8Array(img1.width * img1.height * 4);
+  const { diff: detDiff } = pbdDiff(
+    img1.data, img2.data, detDiffBuf,
+    img1.width, img1.height,
+    { threshold: 0, cumulatedThreshold: 0 }
+  );
   if (detDiff === 0) {
     passed++;
     console.log('  PASS  determinism (0 pixels differ)');
