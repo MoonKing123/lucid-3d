@@ -2,6 +2,21 @@
 
 AI-first, code-first, no-editor 3D game engine for WeChat mini-games.
 
+## 📖 Read This First: `llms.txt`
+
+Before exploring `src/`, **always read `llms.txt` first** — it's a condensed
+symbol index of every public API in the engine (~500 lines vs ~15k lines of source).
+
+Use `llms.txt` to:
+- Discover which module owns a concept (e.g. "Is there a FollowCamera? Which file?")
+- Check if an API already exists before implementing from scratch
+- Get function signatures without reading entire source files
+
+Only Read the actual source file when you need implementation details
+(full method signatures, default values, internal behavior).
+
+Regenerate after adding new src/ modules: `node scripts/gen-llms-txt.mjs`
+
 ## Architecture
 
 ```
@@ -9,10 +24,21 @@ src/
 ├── math/       # Vec3, Mat4, Quat — pure functions, zero deps
 ├── core/       # Node3D, SceneGraph, Transform
 ├── renderer/   # WebGL renderer, Shader, Material, Geometry
-└── main.ts     # Demo entry point
+├── animation/  # Skeleton, SkinnedMesh, AnimationMixer
+├── physics/    # SphereCollider, BoxCollider, CollisionWorld
+├── navigation/ # NavGrid, A*, NavAgent
+├── audio/      # AudioListener, PositionalAudio, AudioPool
+├── gameplay/   # StateMachine, EventEmitter, Timer, CharacterController
+├── ui/         # UICanvas, UIText, UIButton, UIProgressBar
+├── helpers/    # AxesHelper, GridHelper, BoundingBoxHelper
+└── loader/     # gltf-loader, texture-loader
 test/
 ├── unit/       # vitest unit tests (math, logic)
 └── visual/     # Playwright + SwiftShader visual regression tests
+examples/
+├── runner-3d/        # M1 — 3D 跑酷集成 demo
+├── tower-defense-3d/ # M2 — 3D 塔防集成 demo
+└── slg-3d/           # M3 — 3D SLG 大地图集成 demo
 ```
 
 ## Commands

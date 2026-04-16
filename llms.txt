@@ -1,0 +1,542 @@
+# Lucid-3D API Reference (for AI consumption)
+
+AI-native 3D game engine. WebGL 1.0, column-major Mat4, zero external dependencies.
+
+Generated: 2026-04-16 from 89 source files.
+Regenerate: `node scripts/gen-llms-txt.mjs`
+
+This file is a **symbol index**, not full API docs. For method signatures and
+parameter details, read the source file directly (path shown in each section).
+
+---
+
+## src/core/
+
+### `src/core/asset-manager.ts`
+AssetManager — 集中式资产加载器，提供 URL 级缓存、进度追踪和生命周期管理。 所有资产通过 key 标识，相同 key 只加载一次。
+- `class AssetManager` — AssetManager — 集中式资产加载器，提供 URL 级缓存、进度追踪和生命周期管理。
+
+### `src/core/camera.ts`
+Camera 抽象基类 + PerspectiveCamera + OrthographicCamera。 Camera extends Node3D，保留场景图参与能力。
+- `abstract class Camera extends Node3D` — Camera 抽象基类 + PerspectiveCamera + OrthographicCamera。
+- `class PerspectiveCamera extends Camera`
+- `class OrthographicCamera extends Camera`
+
+### `src/core/clock.ts`
+Clock — 游戏循环时间管理。 使用 performance.now() 提供高精度帧间隔和累计时间。
+- `class Clock` — Clock — 游戏循环时间管理。
+
+### `src/core/follow-camera.ts`
+FollowCamera — 弹簧阻尼跟随相机。 以可配置的偏移量和阻尼系数平滑跟随目标 Node3D。 适用于 3D 跑酷/赛车/角色扮演等第三人称视角。
+- `interface FollowCameraOptions`
+- `class FollowCamera extends PerspectiveCamera`
+
+### `src/core/game-loop.ts`
+GameLoop — 游戏主循环。 支持固定时间步长的 fixedUpdate + 可变帧率的 update + render 回调。
+- `interface GameLoopOptions`
+- `class GameLoop`
+
+### `src/core/input.ts`
+- `interface InputEventData`
+- `type InputListener`
+- `interface InputTarget`
+- `class InputManager`
+
+### `src/core/light.ts`
+- `abstract class Light extends Node3D` — 所有光源的抽象基类。
+- `class AmbientLight extends Light` — 环境光 — 均匀照亮所有表面，无方向性。
+- `class DirectionalLight extends Light` — 方向光 — 模拟太阳光，平行光线从指定方向射入。
+
+### `src/core/lod.ts`
+LOD — 基于距离的层级细节切换。 根据到相机的距离自动显示/隐藏不同细节级别的子节点。
+- `interface LODLevel`
+- `class LOD extends Node3D`
+
+### `src/core/node3d.ts`
+Node3D — scene graph node with local/world transforms. Supports parent-child hierarchy, depth-first traversal, and name lookup.
+- `class Node3D`
+
+### `src/core/orbit-camera.ts`
+OrbitCamera — 轨道相机。 绕目标点旋转/缩放/平移，适用于塔防俯瞰、SLG 大地图、3D 查看器等场景。 支持编程控制和阻尼平滑。
+- `interface OrbitCameraOptions`
+- `class OrbitCamera extends PerspectiveCamera`
+
+### `src/core/point-light.ts`
+- `class PointLight extends Light` — 点光源 — 从场景中某一点向所有方向发射光线，带距离衰减。
+
+### `src/core/ray.ts`
+Ray 和 Raycaster — 射线检测与场景对象拾取。
+- `interface RaycastHit`
+- `class Ray`
+- `class Raycaster`
+
+### `src/core/scene-manager.ts`
+SceneManager — 场景生命周期管理器。 注册、加载、卸载游戏场景，委托帧更新给当前活跃场景。
+- `interface GameScene`
+- `class SceneManager`
+
+### `src/core/scene.ts`
+Scene — 场景图的根容器，支持背景色、雾效配置和自动光源收集。
+- `interface FogOptions`
+- `interface SceneOptions`
+- `interface CollectedLights`
+- `class Scene extends Node3D`
+
+### `src/core/spot-light.ts`
+- `interface SpotLightOptions`
+- `class SpotLight extends Light` — 聚光灯 — 锥形光源，支持内/外锥角、距离衰减和阴影柔边。
+
+### `src/core/touch-gesture.ts`
+TouchGesture — 触摸手势识别器。 基于 InputManager 的 pointer 事件识别 swipe/tap/double-tap/long-press。 面向微信/抖音小游戏平台的移动端手势交互。
+- `interface SwipeEvent`
+- `interface TapEvent`
+- `interface LongPressEvent`
+- `interface TouchGestureOptions`
+- `type SwipeCallback`
+- `type TapCallback`
+- `type LongPressCallback`
+- `class TouchGesture`
+
+## src/math/
+
+### `src/math/aabb.ts`
+- `class AABB`
+
+### `src/math/color.ts`
+Color — RGB 颜色类，游戏开发标准颜色操作。 内部以 [0,1] 浮点存储，支持 hex/HSL 互转、插值、混合。
+- `class Color`
+
+### `src/math/curve3.ts`
+Curve3 — CatmullRom 3D 参数化样条曲线。 通过控制点序列创建平滑 3D 曲线，支持： - getPoint(t)        — 参数 t∈[0,1] 处的位置 - getTangent(t)      — 参数 t 处的归一化切线 - getPoints(n)       — n+1 个等参数间距的采样点 - getLength()        — 弧长近似 - getPointAtLength(d) — 弧长 d 处的位置 CatmullRom 插值经过所有控制点，tension 参数控制曲率。
+- `const __STUB__` — Curve3 — CatmullRom 3D 参数化样条曲线。
+- `interface Curve3Options`
+- `class Curve3`
+
+### `src/math/euler.ts`
+Euler 角旋转 — 支持 6 种旋转顺序。 角度单位：弧度。 使用列主序 Mat4（row + col*4 索引）与 [x, y, z, w] Quat。
+- `type RotationOrder`
+- `class Euler`
+
+### `src/math/frustum.ts`
+Frustum — 视锥体裁剪 从 viewProjection 矩阵提取 6 个裁剪平面，判断点/AABB 是否在视锥内。
+- `interface Plane` — Frustum — 视锥体裁剪
+- `function createPlane (normal?: Vec3, constant` — 创建平面，默认 normal=(0,0,1), constant=0
+- `function distanceToPoint (plane: Plane, point: Vec3): number` — 计算点到平面的有符号距离（正=法线侧，负=背面）
+- `class Frustum`
+
+### `src/math/mat4.ts`
+Mat4 — pure-function 4x4 matrix math library. Column-major layout (OpenGL/WebGL convention). Mat4 is a Float32Array of length 16. Element at row r, col c is stored at index [r + c*4]. All functions are pure (no mutation of inputs).
+- `function mat4 (): Mat4` — Mat4 — pure-function 4x4 matrix math library.
+- `function identity (): Mat4` — Create the identity matrix.
+- `function multiply (a: Mat4, b: Mat4): Mat4` — Multiply two matrices: a * b.
+- `function translate (m: Mat4, v: Vec3): Mat4` — Apply translation m * T(v).
+- `function scale (m: Mat4, v: Vec3): Mat4` — Apply scale m * S(v).
+- `function rotateX (m: Mat4, angle: number): Mat4` — Apply rotation around X axis: m * Rx(angle).
+- `function rotateY (m: Mat4, angle: number): Mat4` — Apply rotation around Y axis: m * Ry(angle).
+- `function rotateZ (m: Mat4, angle: number): Mat4` — Apply rotation around Z axis: m * Rz(angle).
+- `function perspective (fov: number, aspect: number, near: number, far: number): Mat4` — Create a perspective projection matrix.
+- `function lookAt (eye: Vec3, target: Vec3, up: Vec3): Mat4` — Create a view matrix (lookAt).
+- `function invert (m: Mat4): Mat4 | null` — Compute the inverse of a 4x4 matrix using cofactor expansion.
+- `function transpose (m: Mat4): Mat4` — Transpose a 4×4 matrix (swap rows and columns).
+- `function normalMatrix (modelMatrix: Mat4): Mat4 | null` — Compute the normal matrix: transpose(inverse(modelMatrix)).
+- `function ortho (` — Create an orthographic projection matrix.
+- `function transformPoint (m: Mat4, p: Vec3): Vec3` — Transform a 3D point by a 4x4 matrix, performing perspective divide (w-divide).
+
+### `src/math/quat.ts`
+Quat — 纯函数四元数数学库。 布局：[x, y, z, w]，Hamilton 约定，与 glTF 一致。 Quat 是长度为 4 的 Float32Array。 所有函数均为纯函数（不修改输入）。
+- `function quat (x` — Quat — 纯函数四元数数学库。
+- `function fromAxisAngle (axis: Vec3, angle: number): Quat` — 从轴角创建四元数（内部归一化轴）
+- `function fromEuler (x: number, y: number, z: number): Quat` — 从欧拉角（弧度）创建四元数，YXZ 顺序
+- `function multiplyQuat (a: Quat, b: Quat): Quat` — Hamilton 乘积：a * b
+- `function conjugate (q: Quat): Quat` — 共轭：(-x, -y, -z, w)，对单位四元数等价于逆
+- `function normalizeQuat (q: Quat): Quat` — 归一化到单位长度
+- `function slerp (a: Quat, b: Quat, t: number): Quat` — 球面线性插值
+- `function quatToMat4 (q: Quat): Mat4` — 转换为 4x4 旋转矩阵（列主序）
+- `const toMat4` — quatToMat4 的别名（方便导入）
+- `function quatLength (q: Quat): number` — 欧几里得长度
+- `function quatDot (a: Quat, b: Quat): number` — 点积
+
+### `src/math/utils.ts`
+MathUtils — 集中式数学工具函数。 纯函数，零依赖，覆盖游戏开发常用的数值操作。
+- `function clamp (value: number, min: number, max: number): number` — MathUtils — 集中式数学工具函数。
+- `function lerp (a: number, b: number, t: number): number` — 线性插值 a→b，t ∈ [0,1]
+- `function inverseLerp (a: number, b: number, value: number): number` — 逆线性插值：给定 value 在 [a,b] 中的位置，返回 t；a===b 时返回 0
+- `function smoothstep (edge0: number, edge1: number, x: number): number` — Hermite 平滑插值（3t²-2t³），edge0→edge1 之间返回 [0,1]
+- `function degToRad (degrees: number): number` — 角度转弧度
+- `function radToDeg (radians: number): number` — 弧度转角度
+- `function mapRange (value: number, inMin: number, inMax: number, outMin: number, outMax: number): number` — 将 value 从 [inMin, inMax] 映射到 [outMin, outMax]
+- `function randomRange (min: number, max: number): number` — 返回 [min, max) 范围内的随机浮点数
+- `function isPowerOfTwo (n: number): boolean` — 判断 n 是否为 2 的幂（n > 0）
+- `function nextPowerOfTwo (n: number): number` — 返回 ≥ n 的最小 2 的幂；nextPowerOfTwo(0) === 1
+
+### `src/math/vec3.ts`
+Vec3 — pure-function 3D vector math library. Vec3 is a Float32Array of length 3. All functions are pure (no mutation of inputs).
+- `type Vec3` — Vec3 — pure-function 3D vector math library.
+- `function vec3 (x` — Create a new Vec3 from components (defaults to 0).
+- `function add (a: Vec3, b: Vec3): Vec3` — Add two vectors, returning a new Vec3.
+- `function sub (a: Vec3, b: Vec3): Vec3` — Subtract b from a, returning a new Vec3.
+- `function scale (v: Vec3, s: number): Vec3` — Scale a vector by a scalar, returning a new Vec3.
+- `function dot (a: Vec3, b: Vec3): number` — Compute the dot product of two vectors.
+- `function cross (a: Vec3, b: Vec3): Vec3` — Compute the cross product of two vectors, returning a new Vec3.
+- `function length (v: Vec3): number` — Compute the Euclidean length of a vector.
+- `function normalize (v: Vec3): Vec3` — Normalize a vector to unit length, returning a new Vec3.
+- `function distance (a: Vec3, b: Vec3): number` — Compute the Euclidean distance between two points.
+- `function negate (v: Vec3): Vec3` — Negate all components of a vector, returning a new Vec3.
+- `function lerp (a: Vec3, b: Vec3, t: number): Vec3` — Linearly interpolate between two vectors at parameter t.
+
+## src/renderer/
+
+### `src/renderer/bitmap-font.ts`
+BitmapFont — BMFont .fnt 文本格式解析器 + 字符布局数据容器 供 BitmapText 使用，提供字符 quad 生成和文字宽度度量。
+- `interface BitmapCharData`
+- `interface BitmapFontData`
+- `class BitmapFont`
+
+### `src/renderer/bitmap-text.ts`
+BitmapText — 基于 BitmapFont atlas 的文字渲染节点 继承 Mesh，为每个可见字符生成 quad 几何体。
+- `class BitmapTextMaterial extends Material` — BitmapText — 基于 BitmapFont atlas 的文字渲染节点
+- `class BitmapText extends Mesh` — BitmapText — 文字渲染节点，继承 Mesh。
+
+### `src/renderer/cube-texture.ts`
+CubeTexture — 6 面立方体贴图，用于天空盒和环境映射。 每个面是一张正方形 RGBA 图片（Uint8Array），按标准顺序排列： +X, -X, +Y, -Y, +Z, -Z（gl.TEXTURE_CUBE_MAP_POSITIVE_X 等）。
+- `const CubeTextureFace` — CubeTexture — 6 面立方体贴图，用于天空盒和环境映射。
+- `type CubeTextureFaceValue`
+- `class CubeTexture`
+
+### `src/renderer/fog.ts`
+Fog — 雾效数学计算与 GLSL 代码片段。 支持 linear / exp / exp2 三种模式。
+- `type FogMode` — Fog — 雾效数学计算与 GLSL 代码片段。
+- `interface FogConfig`
+- `function computeFogFactor (distance: number, config: FogConfig): number` — 计算雾效因子（0 = 无雾，1 = 完全雾化）。
+- `const FOG_VERTEX_PARS` — 顶点着色器 — varying 声明
+- `const FOG_VERTEX_CODE` — 顶点着色器 — 计算 v_fogDist
+- `const FOG_FRAGMENT_PARS` — 片元着色器 — uniform + varying 声明
+- `const FOG_FRAGMENT_CODE` — 片元着色器 — 混合雾色
+
+### `src/renderer/geometry.ts`
+Geometry — holds vertex/index buffer data for a mesh. Positions and colors are stored as separate Float32Arrays. Indices are optional (null means use drawArrays).
+- `class Geometry` — Geometry — holds vertex/index buffer data for a mesh.
+- `function createCubeGeometry (): Geometry` — Create a 1x1x1 cube centered at origin with per-face vertex colors.
+
+### `src/renderer/instanced-mesh.ts`
+InstancedMesh — 单 Geometry + Material 渲染多个实例，共用一次 draw call。 基于 WebGL 1.0 ANGLE_instanced_arrays 扩展。 API 参考 Three.js InstancedMesh，但简化为仅支持 per-instance 变换和颜色。
+- `class InstancedMesh extends Mesh`
+
+### `src/renderer/line-renderer.ts`
+LineRenderer — 3D 线段/折线渲染。 支持 LINES（成对线段）、LINE_STRIP（连续折线）、LINE_LOOP（封闭折线）三种绘制模式。 用于调试可视化（路径/包围盒/射线）和游戏效果（激光/轨迹/连线）。
+- `class LineGeometry` — LineRenderer — 3D 线段/折线渲染。
+- `class LineMaterial extends Material` — LineMaterial — 线段材质。
+- `class Line extends Node3D` — Line — 3D 线段节点，参与场景图。
+
+### `src/renderer/material.ts`
+Material — wraps vertex and fragment shader source strings. Provides sensible defaults for vertex-colored 3D rendering with MVP transform.
+- `enum BlendMode` — Material — wraps vertex and fragment shader source strings.
+- `enum Side`
+- `class Material`
+
+### `src/renderer/mesh.ts`
+Mesh — a renderable scene node combining Geometry and Material. Extends Node3D to participate in the scene graph hierarchy.
+- `class Mesh extends Node3D`
+
+### `src/renderer/particle-emitter.ts`
+ParticleEmitter — CPU 粒子系统，支持生命周期管理、速度/重力物理、颜色插值。
+- `interface ParticleEmitterOptions`
+- `class ParticleEmitter extends Node3D`
+
+### `src/renderer/particle-renderer.ts`
+ParticleRenderer — GPU 粒子点精灵渲染器。 使用 gl.POINTS 原语和 gl_PointCoord 实现圆形点精灵。 4 个独立顶点属性缓冲区：position、size、color、alpha。
+- `class ParticleRenderer`
+
+### `src/renderer/phong-material.ts`
+PhongMaterial — Blinn-Phong 光照材质 支持：漫反射贴图、自发光、多光源
+- `interface PhongMaterialOptions`
+- `class PhongMaterial extends Material`
+
+### `src/renderer/post-process.ts`
+PostProcessor — 后处理管线。 基于 ping-pong FBO 实现多 pass 效果链，内置灰度、模糊、泛光三种效果。
+- `interface EffectPass` — PostProcessor — 后处理管线。
+- `class PostProcessor`
+- `class GrayscalePass implements EffectPass` — 灰度化效果：使用亮度公式 dot(rgb, vec3(0.299, 0.587, 0.114))
+- `class BlurPass implements EffectPass` — 高斯模糊效果：5-tap 高斯核双向采样
+- `class BloomPass implements EffectPass` — 泛光效果：亮度阈值提取 → 模糊 → 与原图叠加
+
+### `src/renderer/primitives.ts`
+- `function createPlaneGeometry (` — 平面几何体，位于 XZ 平面，以原点为中心，法线朝 +Y。
+- `function createSphereGeometry (` — UV 球体，以原点为中心，极点在 Y 轴。
+- `function createCylinderGeometry (opts:` — 圆柱体，沿 Y 轴，以原点为中心。
+- `function createConeGeometry (opts?:` — 锥体，尖端朝 +Y（height/2），底面朝 -Y（-height/2），以原点为中心。
+- `function createTorusGeometry (opts?:` — 圆环（甜甜圈），在 XZ 平面围绕 Y 轴。
+- `function createRingGeometry (opts?:` — 环形平面（准心/地面标记），位于 XZ 平面，法线 +Y。
+
+### `src/renderer/render-info.ts`
+RenderInfo — 每帧渲染统计信息。 WebGLRenderer 在 render() 期间填充，外部可读取用于性能监控。
+- `interface RenderInfo` — RenderInfo — 每帧渲染统计信息。
+- `function createRenderInfo (): RenderInfo` — 创建一个归零的 RenderInfo 对象
+- `function resetRenderInfo (info: RenderInfo): void` — 将 RenderInfo 所有字段重置为 0
+
+### `src/renderer/render-queue.ts`
+RenderQueue — 渲染队列排序：不透明前到后、透明后到前。
+- `interface QueueItem` — RenderQueue — 渲染队列排序：不透明前到后、透明后到前。
+- `interface SortedQueue <T extends QueueItem>`
+- `function buildRenderQueue <T extends QueueItem>(items: T[]): SortedQueue<T>` — 将渲染项分为不透明和透明两组，分别排序。
+
+### `src/renderer/render-target.ts`
+RenderTarget — 离屏渲染目标（FBO 封装）。 用于阴影贴图、后处理等需要渲染到纹理的场景。
+- `interface RenderTargetOptions` — RenderTarget — 离屏渲染目标（FBO 封装）。
+- `class RenderTarget`
+
+### `src/renderer/shader-material.ts`
+ShaderMaterial — 自定义着色器材质，支持声明式 uniform 绑定。 AI Agent 可编写任意 GLSL vertex/fragment shader，并通过 uniforms map 声明 自定义 uniform 变量。WebGLRenderer 自动检测 ShaderMaterial 并绑定所有声明的 uniform。 内置 uniform（渲染器自动注入，无需声明）： u_mvp          mat4  — model-view-projection 矩阵 u_modelMatrix  mat4  — model 矩阵 u_viewMatrix   mat4  — view 矩阵 u_projMatrix   mat4  — projection 矩阵 u_time         float — 累计时间（秒） u_resolution   vec2  — canvas 尺寸（像素）
+- `const __STUB__` — ShaderMaterial — 自定义着色器材质，支持声明式 uniform 绑定。
+- `type UniformType` — Supported uniform types matching WebGL 1.0 uniform calls.
+- `interface UniformDef` — A single uniform declaration: type + current value.
+- `interface ShaderMaterialOptions`
+- `class ShaderMaterial extends Material`
+
+### `src/renderer/shadow-map.ts`
+ShadowMap — 方向光阴影映射。 使用 RenderTarget 渲染深度纹理，在主渲染 pass 中采样实现阴影。 支持可配置分辨率、bias、PCF 软阴影。
+- `const SHADOW_VERTEX_PARS` — ShadowMap — 方向光阴影映射。
+- `const SHADOW_VERTEX_CODE` — 顶点着色器代码部分：计算阴影纹理坐标
+- `const SHADOW_FRAGMENT_PARS` — 片元着色器声明部分：阴影贴图采样器与 varying
+- `const SHADOW_FRAGMENT_CODE` — 片元着色器代码部分：采样阴影贴图并计算阴影因子（硬阴影）
+
+### `src/renderer/skinned-mesh.ts`
+SkinnedMesh — 带骨骼蒙皮的可渲染节点。 扩展 Mesh，持有 Skeleton 引用，用于骨骼动画渲染。
+- `class SkinnedMesh extends Mesh`
+
+### `src/renderer/skybox.ts`
+SkyboxRenderer — 使用 CubeTexture 渲染无限远天空盒背景。 技术方案： - 全屏四边形（2 个三角形）覆盖 clip space - Vertex Shader：gl_Position.z = gl_Position.w（最远深度） - Fragment Shader：逆 VP 旋转矩阵计算视线方向，采样 samplerCube - 相机：只取旋转（清除平移）实现无限远效果 - 深度：渲染前 LEQUAL + depthMask(false)，渲染后 LESS + depthMask(true)
+- `class SkyboxRenderer`
+
+### `src/renderer/sprite.ts`
+Sprite — billboard 精灵，始终面向相机的四边形。 用于粒子效果、UI 元素、远景装饰物等。
+- `class SpriteMaterial extends Material`
+- `class Sprite extends Node3D`
+
+### `src/renderer/static-batch.ts`
+StaticBatch — 将多个共享同材质的静态 Mesh 合并为一次 draw call。 顶点位置烘焙世界变换，适合不再移动的场景物体（建筑、地形碎片等）。
+- `class StaticBatch` — StaticBatch — 将多个共享同材质的静态 Mesh 合并为一次 draw call。
+- `function batchMeshes (meshes: Mesh[]): StaticBatch[]` — 将一组 Mesh 按 Material 实例分组，每组生成一个 StaticBatch。
+
+### `src/renderer/texture-atlas.ts`
+TextureAtlas — 精灵表 / 图集 UV 区域管理。 支持均匀网格布局和自定义命名区域，用于粒子纹理、UI 图标、Tile 地图等。
+- `interface AtlasRegion`
+- `class TextureAtlas`
+
+### `src/renderer/texture-material.ts`
+TextureMaterial — 纹理贴图材质
+- `class TextureMaterial extends Material`
+
+### `src/renderer/texture.ts`
+Texture — 纹理数据容器（CPU 端） 支持从原始 RGBA 数据构造，以及工厂方法创建常用纹理。
+- `enum TextureWrap` — Texture — 纹理数据容器（CPU 端）
+- `enum TextureFilter`
+- `class Texture`
+
+### `src/renderer/trail.ts`
+TrailRenderer — 动态拖尾效果渲染器。 跟随父节点的世界位置，持续生成飘带状拖尾几何体。 适用于：剑气、导弹尾迹、速度线、魔法弹道等视觉效果。 使用方式： const trail = new TrailRenderer({ width: 0.5, lifetime: 1.0 }); movingObject.addChild(trail); // 每帧调用 trail.update(dt) 几何体为三角形列表（quad → 2 triangles），宽度从最新点到最老点线性衰减， 颜色支持渐变。maxPoints 控制环形缓冲区大小。
+- `interface TrailPoint`
+- `interface TrailRendererOptions`
+- `class TrailRenderer extends Node3D`
+
+### `src/renderer/webgl-renderer.ts`
+WebGLRenderer — traverses the scene graph and renders all Mesh nodes. Uses WebGL 1.0 for maximum compatibility (WeChat mini-games).
+- `class WebGLRenderer`
+
+## src/animation/
+
+### `src/animation/animation-action.ts`
+AnimationAction — 基于权重的动画播放包装器，支持淡入淡出过渡。
+- `class AnimationAction`
+
+### `src/animation/animation-clip.ts`
+AnimationClip — 动画片段，包含多个 KeyframeTrack。
+- `class AnimationClip`
+
+### `src/animation/animation-mixer.ts`
+AnimationMixer — 动画播放引擎，驱动 Skeleton 按关键帧轨道更新。 支持单片段播放和多 AnimationAction 权重混合。
+- `class AnimationMixer`
+
+### `src/animation/keyframe-track.ts`
+KeyframeTrack — 关键帧轨道，支持 LINEAR 和 STEP 插值。
+- `type InterpolationType`
+- `type TargetPath`
+- `class KeyframeTrack`
+
+### `src/animation/skeleton.ts`
+Skeleton & Bone 骨骼系统。
+- `interface BoneData`
+- `class Skeleton`
+
+### `src/animation/tween.ts`
+Tween — 属性动画与缓动函数 对任意数字属性对象做缓动插值动画。
+- `type EasingFn` — Tween — 属性动画与缓动函数
+- `const Easing :` — 8 种标准缓动函数
+- `class Tween <T extends Record<string, number>>`
+
+## src/physics/
+
+### `src/physics/box-collider.ts`
+BoxCollider — AABB 盒碰撞体。 轴对齐包围盒，使用 center + halfExtents 定义。 支持 box-box 和 box-sphere 交叉检测，以及重叠深度计算。
+- `class BoxCollider`
+
+### `src/physics/collision.ts`
+CollisionWorld — 基于 SphereCollider 的碰撞检测系统。 支持碰撞事件回调（enter/stay/exit）和空间查询。
+- `interface CollisionEvent` — CollisionWorld — 基于 SphereCollider 的碰撞检测系统。
+- `type CollisionCallback`
+- `interface BodyOptions`
+- `class SphereCollider` — 内部存储每个节点的碰撞体信息。 */
+- `interface CollisionRaycastHit`
+- `class CollisionWorld`
+
+## src/navigation/
+
+### `src/navigation/nav-agent.ts`
+NavAgent — path-following navigation agent. Attaches to a Node3D and moves it along a sequence of world-space waypoints. Provides speed control, waypoint callbacks, and arrival detection.
+- `class NavAgent` — NavAgent — path-following navigation agent.
+
+### `src/navigation/nav-grid.ts`
+NavGrid — 2D grid-based navigation map. Represents a walkability grid for A* pathfinding. Each cell has a walkable flag and a traversal cost. Supports world ↔ grid coordinate conversion.
+- `class NavGrid` — NavGrid — 2D grid-based navigation map.
+
+### `src/navigation/pathfinder.ts`
+A* Pathfinder — grid-based shortest path search. Finds optimal paths on a NavGrid using the A* algorithm. Supports 4-direction (cardinal) and 8-direction (diagonal) movement, custom cell costs, and iteration limits.
+- `function findPath (` — A* Pathfinder — grid-based shortest path search.
+
+## src/audio/
+
+### `src/audio/audio-listener.ts`
+AudioListener — 3D 空间音频监听器。 作为监听点挂载在 Camera 下，将 Node3D 的世界坐标同步到 Web Audio API。
+- `class AudioListener extends Node3D`
+
+### `src/audio/audio-manager.ts`
+AudioManager — 基于 Web Audio API 的音频管理器 支持 BGM 循环播放和 SFX 一次性播放，带主音量控制
+- `interface AudioClip` — AudioManager — 基于 Web Audio API 的音频管理器
+- `interface PlaySFXOptions`
+- `interface PlayBGMOptions`
+- `class AudioManager`
+
+### `src/audio/audio-pool.ts`
+AudioPool — 固定大小的音频通道池，用于频繁播放一次性 SFX。 避免每次播放创建/连接新节点的 GC 压力。
+- `interface AudioPoolOptions`
+- `class AudioPool`
+
+### `src/audio/positional-audio.ts`
+PositionalAudio — 3D 定位音频源。 继承 Node3D，通过 Web Audio PannerNode 实现 3D 空间定位声音。 音频链路：source → gainNode → panner → listener.getInput()
+- `type DistanceModel`
+- `interface PositionalAudioOptions`
+- `interface AudioClip`
+- `class PositionalAudio extends Node3D`
+
+## src/gameplay/
+
+### `src/gameplay/character-controller.ts`
+CharacterController — 3D 角色控制器。 提供重力、跳跃、地面检测、水平移动等开箱即用的角色运动能力。 地面检测使用 CollisionWorld.findGround() Y 轴接近度检测。 默认 groundCheckDistance = 0.5：对应角色高度 50% 的"脚下区域"， 与 Unity CharacterController / Godot KinematicBody 保持一致的宽容度。 旧默认值 0.1 要求亚像素精度，人形角色实际使用中很容易漏检。
+- `interface CharacterControllerOptions`
+- `class CharacterController`
+
+### `src/gameplay/event-emitter.ts`
+EventEmitter — 通用事件发射器 Lightweight typed event emitter for game objects.
+- `type EventMap` — EventEmitter — 通用事件发射器
+- `class EventEmitter <T extends EventMap` — Generic typed event emitter.
+
+### `src/gameplay/object-pool.ts`
+ObjectPool — 通用泛型对象池 通过 factory + reset 模式复用对象，避免 GC 压力。
+- `class ObjectPool <T>` — ObjectPool — 通用泛型对象池
+
+### `src/gameplay/state-machine.ts`
+StateMachine — 泛型有限状态机。 支持状态进入/退出/更新回调、守卫条件、和帧更新。
+- `interface StateConfig <S extends string>` — StateMachine — 泛型有限状态机。
+- `interface TransitionRule <S extends string>`
+- `class StateMachine <S extends string>`
+
+### `src/gameplay/timer.ts`
+Timer — 基于帧更新的游戏定时器系统。 支持 setTimeout（延迟执行）和 setInterval（重复执行）。 通过 update(dt) 驱动，无需依赖 Web API。
+- `type TimerHandle` — Timer — 基于帧更新的游戏定时器系统。
+- `class Timer`
+
+## src/ui/
+
+### `src/ui/ui-button.ts`
+UIButton — 可交互按钮 UI 元素。 支持 normal/pressed/disabled 三种视觉状态、标签文字、onClick 回调。 简化游戏菜单/暂停/重启等常见按钮场景。
+- `interface UIButtonOptions extends UIElementOptions`
+- `class UIButton extends UIElement`
+
+### `src/ui/ui-canvas.ts`
+UICanvas — 屏幕空间 2D 覆盖层容器。 管理正交投影矩阵（像素坐标系，左上角 0,0）和 UI 元素树。 提供 hitTest 用于点击/触摸交互。 渲染器通过 renderUI(canvas) 在 3D 场景之后渲染此层。
+- `class UICanvas`
+
+### `src/ui/ui-element.ts`
+UIElement — 2D UI 元素基类。 所有 HUD/UI 组件（UIRect, UIText, UIProgressBar）的公共基类。 提供位置、尺寸、锚点、可见性、不透明度、子元素树、交互回调。
+- `type Anchor`
+- `interface UIElementOptions`
+- `interface ScreenBounds`
+- `class UIElement`
+
+### `src/ui/ui-flex-container.ts`
+UIFlexContainer — 自动布局容器 UI 元素。 将子元素按水平或垂直方向自动排列，支持间距和内边距。 简化游戏菜单按钮行、HUD 面板、物品栏等常见布局场景。
+- `interface UIFlexContainerOptions extends UIElementOptions`
+- `class UIFlexContainer extends UIElement`
+
+### `src/ui/ui-image.ts`
+UIImage — 屏幕空间纹理图片 UI 元素。 在像素坐标系中显示纹理（图标、头像、背景图等）。 支持 tint 着色、UV 区域裁剪（atlas slicing）、宽高比保持。
+- `interface UVRect`
+- `interface UIImageOptions extends UIElementOptions`
+- `class UIImage extends UIElement`
+
+### `src/ui/ui-progress-bar.ts`
+UIProgressBar — 进度条 UI 元素。 可配置填充方向、背景色、填充色、边框。 用于血量条、经验条、加载进度等。
+- `type BarDirection`
+- `interface UIProgressBarOptions extends UIElementOptions`
+- `class UIProgressBar extends UIElement`
+
+### `src/ui/ui-rect.ts`
+UIRect — 矩形 UI 元素。 纯色或纹理填充的矩形，用于面板、按钮背景、遮罩等。
+- `interface UIRectOptions extends UIElementOptions`
+- `class UIRect extends UIElement`
+
+### `src/ui/ui-text.ts`
+UIText — 屏幕空间文字 UI 元素。 使用 BitmapFont 在像素坐标系中渲染文字。 支持字号缩放、颜色、对齐方式。
+- `type TextAlign`
+- `interface UITextOptions extends UIElementOptions`
+- `class UIText extends UIElement`
+
+## src/helpers/
+
+### `src/helpers/axes-helper.ts`
+AxesHelper — 3D 坐标轴可视化辅助器。 渲染三条彩色线段：X=红, Y=绿, Z=蓝。
+- `class AxesHelper extends Node3D` — AxesHelper — 3D 坐标轴可视化辅助器。
+
+### `src/helpers/bounding-box-helper.ts`
+BoundingBoxHelper — AABB 包围盒线框可视化辅助器。 渲染目标 Node3D（Mesh）的 AABB 为 12 条线段的线框盒。
+- `class BoundingBoxHelper extends Node3D` — BoundingBoxHelper — AABB 包围盒线框可视化辅助器。
+
+### `src/helpers/grid-helper.ts`
+GridHelper — 地面参考网格可视化辅助器。 渲染一组平行线段构成 XZ 平面的正方网格。
+- `class GridHelper extends Node3D` — GridHelper — 地面参考网格可视化辅助器。
+
+## src/loader/
+
+### `src/loader/gltf-loader.ts`
+glTF 2.0 Loader — 将 glTF JSON + 二进制缓冲区解析为引擎场景图。 支持：网格图元（POSITION/NORMAL/TEXCOORD_0/indices）、节点层次结构、 嵌入式 base64 缓冲区、外部 ArrayBuffer、材质基础颜色 → 顶点颜色。 扩展：skin（骨骼）、animation（动画）、SkinnedMesh。
+- `function decodeDataUri (uri: string): ArrayBuffer` — glTF 2.0 Loader — 将 glTF JSON + 二进制缓冲区解析为引擎场景图。
+- `function readAccessor (` — 读取 accessor 数据为类型化数组（FLOAT → Float32Array，UNSIGNED_SHORT → Uint16Array）。
+- `function parseGltf (` — 将 glTF 2.0 JSON + 二进制缓冲区解析为引擎场景图。
+
+### `src/loader/texture-loader.ts`
+TextureLoader — 图片数据解码为 Texture 的加载器。 支持从 ImageData、原始 RGBA 字节、或图片 ArrayBuffer（PNG/JPEG）创建纹理。
+- `class TextureLoader`
+
+## Root (src/)
+
+### `src/main.ts`
+_(no public exports)_
+
+### `src/renderer-rotating.ts`
+Rotating triangle renderer — incremental feature on top of static renderer. Adds a uniform-based rotation to validate: 1. AI can add features incrementally 2. New feature can be visually verified 3. Previous tests still pass (regression check)
+- `function renderRotatingFrame (state: RotatingRendererState, angle: number): void` — Rotating triangle renderer — incremental feature on top of static renderer.
+
+### `src/renderer.ts`
+Minimal WebGL renderer — Phase 0 spike. Renders a colored triangle to validate the headless visual testing pipeline.
+- `function initRenderer (canvas: HTMLCanvasElement): RendererState` — Minimal WebGL renderer — Phase 0 spike.
+- `function renderFrame (state: RendererState): void` — Render one frame — static colored triangle.
