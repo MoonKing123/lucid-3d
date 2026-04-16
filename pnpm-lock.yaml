@@ -27,6 +27,18 @@ importers:
         specifier: ^3.1.0
         version: 3.2.4
 
+  examples/br-12p:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.3.0
+        version: 6.4.1
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.4
+
   examples/runner-3d:
     devDependencies:
       '@playwright/test':
