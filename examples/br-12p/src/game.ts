@@ -18,6 +18,7 @@ import { createLights } from './lights';
 import { bindInput } from './input-binding';
 import { Enemy } from './enemy';
 import { spawnEnemies } from './enemy-spawner';
+import { Weapon } from './weapon';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -48,6 +49,7 @@ export class Game {
   private readonly _player: Player;
   private readonly _world: CollisionWorld;
   private readonly _simInput: SimulatedInput;
+  private readonly _weapon: Weapon;
 
   /** 游戏全局事件总线 */
   readonly events: EventEmitter<GameEvents>;
@@ -77,6 +79,7 @@ export class Game {
       collisionWorld: this._world,
       startPosition: [0, 0, 0],
     });
+    this._weapon = new Weapon({ world: this._world });
 
     // 统计地图中可渲染节点（地面 + 墙壁 mesh）
     map.traverse(n => {
@@ -162,6 +165,12 @@ export class Game {
     const removed = before - this._enemies.length;
     this._drawCallCount -= removed;
 
+    // 武器输入：R 键换弹
+    if (inputState.isKeyDown('r') || inputState.isKeyDown('R')) {
+      this._weapon.reload();
+    }
+    this._weapon.update(dt);
+
     if (this._input) {
       this._input.update();  // 清除 keysPressed
     }
@@ -192,12 +201,24 @@ export class Game {
     this._fpsCamera.applyMouseDelta(dx, dy);
   }
 
+  /**
+   * 模拟鼠标左键开火（headless 测试用）。
+   * 从当前相机位置向视线方向发射射线。
+   */
+  simulateShoot(): void {
+    const cam = this._fpsCamera.camera;
+    const origin = vec3(cam.position[0], cam.position[1], cam.position[2]);
+    const dir = this._fpsCamera.getViewDirection();
+    this._weapon.fire(origin, dir);
+  }
+
   // ── 只读属性 ──
 
   get camera() { return this._fpsCamera.camera; }
   get fpsCamera() { return this._fpsCamera; }
   get player() { return this._player; }
   get world() { return this._world; }
+  get weapon() { return this._weapon; }
 
   /** 当前存活的敌人（快照，不可直接修改） */
   get enemies(): readonly Enemy[] { return this._enemies; }
