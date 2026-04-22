@@ -11,7 +11,7 @@ import { Skeleton, type BoneData } from '../../../src/animation/skeleton';
 import { StateMachine } from '../../../src/gameplay/state-machine';
 import { CollisionWorld } from '../../../src/physics/collision';
 import { type Vec3, vec3, sub, length } from '../../../src/math/vec3';
-import { Health } from './health';
+import { Health } from '../../../src/gameplay/health';
 import { type AIState } from './enemy-ai';
 import { MAP_SIZE } from './map';
 

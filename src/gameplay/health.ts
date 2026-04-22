@@ -1,5 +1,3 @@
-export const __STUB__ = true;
-
 import { EventEmitter } from './event-emitter';
 
 export type HealthEvents = {
@@ -8,14 +6,38 @@ export type HealthEvents = {
 };
 
 export class Health extends EventEmitter<HealthEvents> {
-  constructor(_max?: number) {
+  private _current: number;
+  private _max: number;
+
+  constructor(max = 100) {
     super();
-    throw new Error('Not implemented');
+    this._max = max;
+    this._current = max;
   }
-  takeDamage(_amount: number): void { throw new Error('Not implemented'); }
-  heal(_amount: number): void { throw new Error('Not implemented'); }
-  reset(_newMax?: number): void { throw new Error('Not implemented'); }
-  get current(): number { throw new Error('Not implemented'); }
-  get max(): number { throw new Error('Not implemented'); }
-  get isDead(): boolean { throw new Error('Not implemented'); }
+
+  takeDamage(amount: number): void {
+    if (this._current <= 0) return;
+    this._current = Math.max(0, this._current - amount);
+    this.emit('health.changed', this._current, this._max);
+    if (this._current <= 0) {
+      this.emit('health.died');
+    }
+  }
+
+  heal(amount: number): void {
+    this._current = Math.min(this._max, this._current + amount);
+    this.emit('health.changed', this._current, this._max);
+  }
+
+  reset(newMax?: number): void {
+    if (newMax !== undefined) {
+      this._max = newMax;
+    }
+    this._current = this._max;
+    this.emit('health.changed', this._current, this._max);
+  }
+
+  get current(): number { return this._current; }
+  get max(): number { return this._max; }
+  get isDead(): boolean { return this._current <= 0; }
 }
