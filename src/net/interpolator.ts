@@ -1,5 +1,3 @@
-export const __STUB__ = true;
-
 export interface Vec3Like {
   x: number;
   y: number;
@@ -7,12 +5,29 @@ export interface Vec3Like {
 }
 
 export class RemoteEntityInterpolator {
-  constructor(_lerpSpeed?: number) {
-    throw new Error('Not implemented');
+  private _lerpSpeed: number;
+  private _targetX = 0;
+  private _targetY = 0;
+  private _targetZ = 0;
+
+  constructor(lerpSpeed = 10) {
+    this._lerpSpeed = lerpSpeed;
   }
-  setTarget(_x: number, _y: number, _z: number): void { throw new Error('Not implemented'); }
-  update(_dt: number, _current: Vec3Like): void { throw new Error('Not implemented'); }
-  get targetX(): number { throw new Error('Not implemented'); }
-  get targetY(): number { throw new Error('Not implemented'); }
-  get targetZ(): number { throw new Error('Not implemented'); }
+
+  setTarget(x: number, y: number, z: number): void {
+    this._targetX = x;
+    this._targetY = y;
+    this._targetZ = z;
+  }
+
+  update(dt: number, current: Vec3Like): void {
+    const t = 1 - Math.exp(-this._lerpSpeed * dt);
+    current.x += (this._targetX - current.x) * t;
+    current.y += (this._targetY - current.y) * t;
+    current.z += (this._targetZ - current.z) * t;
+  }
+
+  get targetX(): number { return this._targetX; }
+  get targetY(): number { return this._targetY; }
+  get targetZ(): number { return this._targetZ; }
 }

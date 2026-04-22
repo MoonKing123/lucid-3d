@@ -1,5 +1,3 @@
-export const __STUB__ = true;
-
 export interface INetworkTransport {
   send(type: string, data: unknown): void;
   on(type: string, handler: (data: unknown) => void): void;

@@ -1,81 +1,62 @@
 /**
- * mock-network.ts — 本地 Mock 网络。
- * 用 EventEmitter 模拟 WebSocket 广播，无需真实服务器，支持 headless 测试。
+ * mock-network.ts — 本地 Mock 网络（基于引擎 src/net/mock-network）。
+ * 提供游戏专用 API 包装，底层使用引擎的房间路由实现。
  */
 
-import { EventEmitter } from '../../../../src/gameplay/event-emitter';
+import {
+  MockNetwork as _EngineMockNetwork,
+  createMockNetwork as _create,
+  resetMockNetwork as _reset,
+} from '../../../../src/net/mock-network';
 import type { NetworkMessage, MessageType } from './message-protocol';
 
-type MockNetworkEvents = {
-  [K in MessageType]: (msg: NetworkMessage & { type: K }) => void;
-} & {
-  'connected': () => void;
-  'disconnected': () => void;
-};
+const GAME_ROOM = 'br-12p';
 
-/** 单例 Mock 广播总线 —— 所有客户端共享此总线，模拟同一房间。 */
-let _globalBus: EventEmitter<MockNetworkEvents> | null = null;
-
-function getGlobalBus(): EventEmitter<MockNetworkEvents> {
-  if (!_globalBus) {
-    _globalBus = new EventEmitter<MockNetworkEvents>();
-  }
-  return _globalBus;
-}
-
-/** 重置全局总线（测试隔离用） */
+/** 重置全局网络状态（测试隔离用） */
 export function resetMockNetwork(): void {
-  _globalBus = new EventEmitter<MockNetworkEvents>();
+  _reset();
 }
 
 /**
- * MockNetwork — 模拟 WebSocket 连接。
- * 连接到全局 Mock 总线，实现消息发送与接收。
+ * MockNetwork — 游戏专用网络封装。
+ * 将引擎的 INetworkTransport 适配为游戏消息协议 API。
  */
 export class MockNetwork {
-  private _bus: EventEmitter<MockNetworkEvents>;
+  private readonly _net: _EngineMockNetwork;
   private _connected = false;
 
   constructor() {
-    this._bus = getGlobalBus();
+    this._net = _create();
   }
 
   get isConnected(): boolean { return this._connected; }
 
   connect(): void {
+    this._net.connect(GAME_ROOM);
     this._connected = true;
-    this._bus.emit('connected');
   }
 
   disconnect(): void {
+    this._net.disconnect();
     this._connected = false;
-    this._bus.emit('disconnected');
   }
 
-  /** 向所有客户端广播消息（包括自身，模拟服务器回显） */
   send(msg: NetworkMessage): void {
     if (!this._connected) return;
-    const bus = this._bus;
-    // 通过 EventEmitter emit 分发到订阅者
-    (bus as any).emit(msg.type, msg);
+    this._net.send(msg.type, msg);
   }
 
-  /** 订阅指定类型消息 */
   on<K extends MessageType>(
     type: K,
     handler: (msg: NetworkMessage & { type: K }) => void,
   ): void {
-    this._bus.on(type as any, handler as any);
+    this._net.on(type, handler as (data: unknown) => void);
   }
 
-  /** 取消订阅 */
   off<K extends MessageType>(
     type: K,
     handler: (msg: NetworkMessage & { type: K }) => void,
   ): void {
-    this._bus.off(type as any, handler as any);
+    this._net.off(type, handler as (data: unknown) => void);
   }
-
-  /** 获取底层总线（测试用） */
-  get bus(): EventEmitter<MockNetworkEvents> { return this._bus; }
 }
