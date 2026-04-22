@@ -8,7 +8,7 @@ import { Node3D } from '../../../../src/core/node3d';
 import { AnimationMixer } from '../../../../src/animation/animation-mixer';
 import { AnimationClip } from '../../../../src/animation/animation-clip';
 import { Skeleton, type BoneData } from '../../../../src/animation/skeleton';
-import { Health } from '../health';
+import { Health } from '../../../../src/gameplay/health';
 import { MAP_SIZE } from '../map';
 
 /** 复活延迟（秒） */
