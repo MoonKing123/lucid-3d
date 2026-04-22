@@ -124,10 +124,7 @@ export class RemotePlayer {
     this.node.position[2] = position.z;
     this._targetX = position.x;
     this._targetZ = position.z;
-    // 重置血量：通过创建新 Health 对象代替（Health 无 reset API）
-    // 这里通过多次 takeDamage 反向模式：直接更新内部 _current
-    // 由于 Health 无 reset，我们需要记录一个复活标志并忽略血量
-    (this.health as any)._current = 100;
+    this.health.reset();
     this._playAnim('idle');
   }
 
