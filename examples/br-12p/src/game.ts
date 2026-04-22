@@ -19,6 +19,7 @@ import { bindInput } from './input-binding';
 import { Enemy } from './enemy';
 import { spawnEnemies } from './enemy-spawner';
 import { Weapon } from './weapon';
+import { Health } from './health';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -28,6 +29,10 @@ export type GameEvents = {
   'weapon.hit': (target: import('../../../src/core/node3d').Node3D, damage: number) => void;
   /** 玩家受到伤害 */
   'player.damaged': (damage: number) => void;
+  /** 击杀事件：攻击者击倒目标 */
+  'kill': (victimId: string, attackerId: string) => void;
+  /** 胜利事件：所有敌人死亡 */
+  'victory': () => void;
 };
 
 /** headless 模式下模拟按键状态的输入实现 */
@@ -50,6 +55,7 @@ export class Game {
   private readonly _world: CollisionWorld;
   private readonly _simInput: SimulatedInput;
   private readonly _weapon: Weapon;
+  private readonly _playerHealth: Health;
 
   /** 游戏全局事件总线 */
   readonly events: EventEmitter<GameEvents>;
@@ -70,6 +76,12 @@ export class Game {
     this._world = new CollisionWorld();
     this._simInput = new SimulatedInput();
     this.events = new EventEmitter<GameEvents>();
+    this._playerHealth = new Health(100);
+
+    // 玩家受伤时同步到 playerHealth
+    this.events.on('player.damaged', (damage) => {
+      this._playerHealth.takeDamage(damage);
+    });
 
     const { sun, ambient } = createLights();
     const map = createMap(this._world);
@@ -131,7 +143,18 @@ export class Game {
     );
     for (const e of newEnemies) {
       this._enemies.push(e);
-      this._drawCallCount++;  // 每个 Enemy 节点对应一个 drawCall
+      this._drawCallCount++;
+      // 敌人死亡时广播 kill 事件并检查胜利条件
+      e.health.on('health.died', () => {
+        this.events.emit('kill', e.node.name || 'enemy', 'player');
+        this._checkVictory();
+      });
+    }
+  }
+
+  private _checkVictory(): void {
+    if (this._enemies.length > 0 && this._enemies.every(en => en.health.isDead)) {
+      this.events.emit('victory');
     }
   }
 
@@ -219,6 +242,7 @@ export class Game {
   get player() { return this._player; }
   get world() { return this._world; }
   get weapon() { return this._weapon; }
+  get playerHealth() { return this._playerHealth; }
 
   /** 当前存活的敌人（快照，不可直接修改） */
   get enemies(): readonly Enemy[] { return this._enemies; }
