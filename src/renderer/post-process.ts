@@ -957,3 +957,50 @@ void main() {
     if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
   }
 }
+
+/* ── SepiaOptions ── */
+
+export interface SepiaOptions {
+  /** 强度 [0, 1]，0 = 原色, 1 = 完全 sepia，默认 1.0 */
+  intensity?: number;
+}
+
+/** 复古棕褐色调色后处理：经典 sepia 矩阵变换，用 mix 融合原色与 sepia 色 */
+export class SepiaPass implements EffectPass {
+  readonly name = 'sepia';
+  enabled = true;
+  intensity: number;
+
+  constructor(options?: SepiaOptions) {
+    const intensity = options?.intensity ?? 1.0;
+
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`SepiaPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_intensity;
+varying vec2 v_texCoord;
+void main() {
+  vec4 col = texture2D(u_texture, v_texCoord);
+  float r = dot(col.rgb, vec3(0.393, 0.769, 0.189));
+  float g = dot(col.rgb, vec3(0.349, 0.686, 0.168));
+  float b = dot(col.rgb, vec3(0.272, 0.534, 0.131));
+  vec3 sepia = vec3(r, g, b);
+  vec3 final = mix(col.rgb, sepia, u_intensity);
+  gl_FragColor = vec4(final, col.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
