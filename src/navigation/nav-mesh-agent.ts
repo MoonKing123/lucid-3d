@@ -5,20 +5,8 @@
  * Unlike NavAgent (2D [x,z] waypoints), NavMeshAgent operates in full 3D space
  * with Y-axis awareness, enabling slopes, ramps, and multi-level navigation.
  *
- * API:
- *   - constructor(node: Node3D, speed?: number)
- *   - setPath(waypoints: Vec3[]): void — replace path and start moving from index 0
- *   - update(dt: number): void — advance position toward current waypoint
- *   - stop(): void — clear path, stop movement
- *   - onArrive(cb: () => void): void — called when final waypoint reached
- *   - onWaypoint(cb: (index: number) => void): void — called each time a waypoint is reached
- *   - get isMoving(): boolean
- *   - get currentWaypointIndex(): number
- *
  * @see test/unit/navigation/nav-mesh-agent.test.ts
  */
-
-export const __STUB__ = true;
 
 import type { Node3D } from '../core/node3d';
 import type { Vec3 } from '../math/vec3';
@@ -30,35 +18,89 @@ export class NavMeshAgent {
   speed: number;
   readonly node: Node3D;
 
-  constructor(_node: Node3D, _speed: number = 5) {
-    throw new Error('NavMeshAgent: Not implemented (stub)');
+  private _waypoints: Vec3[] = [];
+  private _currentIndex: number = -1;
+  private _arrivedCallback: AgentCallback | null = null;
+  private _waypointCallback: WaypointCallback | null = null;
+  private _arrivedFired: boolean = false;
+
+  constructor(node: Node3D, speed: number = 5) {
+    this.node = node;
+    this.speed = speed;
   }
 
   get isMoving(): boolean {
-    throw new Error('NavMeshAgent.isMoving: Not implemented (stub)');
+    return this._currentIndex >= 0 && this._currentIndex < this._waypoints.length;
   }
 
   get currentWaypointIndex(): number {
-    throw new Error('NavMeshAgent.currentWaypointIndex: Not implemented (stub)');
+    return this._currentIndex;
   }
 
-  setPath(_waypoints: Vec3[]): void {
-    throw new Error('NavMeshAgent.setPath: Not implemented (stub)');
+  setPath(waypoints: Vec3[]): void {
+    this._arrivedFired = false;
+    if (waypoints.length === 0) {
+      this._waypoints = [];
+      this._currentIndex = -1;
+      return;
+    }
+    this._waypoints = waypoints;
+    this._currentIndex = 0;
   }
 
-  update(_dt: number): void {
-    throw new Error('NavMeshAgent.update: Not implemented (stub)');
+  update(dt: number): void {
+    if (!this.isMoving) return;
+
+    let remaining = this.speed * dt;
+
+    while (remaining > 0 && this.isMoving) {
+      const wp = this._waypoints[this._currentIndex];
+      const dx = wp[0] - this.node.position[0];
+      const dy = wp[1] - this.node.position[1];
+      const dz = wp[2] - this.node.position[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist < remaining) {
+        // 到达：snap 到 waypoint 精确位置，用剩余预算继续
+        this.node.position[0] = wp[0];
+        this.node.position[1] = wp[1];
+        this.node.position[2] = wp[2];
+        remaining -= dist;
+
+        const reachedIndex = this._currentIndex;
+        this._waypointCallback?.(reachedIndex);
+
+        if (this._currentIndex === this._waypoints.length - 1) {
+          this._currentIndex = -1;
+          if (!this._arrivedFired) {
+            this._arrivedFired = true;
+            this._arrivedCallback?.();
+          }
+          break;
+        } else {
+          this._currentIndex++;
+        }
+      } else {
+        // 本帧预算不足以到达，移动剩余距离
+        this.node.position[0] += (dx / dist) * remaining;
+        this.node.position[1] += (dy / dist) * remaining;
+        this.node.position[2] += (dz / dist) * remaining;
+        break;
+      }
+    }
   }
 
   stop(): void {
-    throw new Error('NavMeshAgent.stop: Not implemented (stub)');
+    this._waypoints = [];
+    this._currentIndex = -1;
+    this._arrivedFired = false;
   }
 
-  onArrive(_cb: AgentCallback): void {
-    throw new Error('NavMeshAgent.onArrive: Not implemented (stub)');
+  onArrive(cb: AgentCallback): void {
+    this._arrivedCallback = cb;
   }
 
-  onWaypoint(_cb: WaypointCallback): void {
-    throw new Error('NavMeshAgent.onWaypoint: Not implemented (stub)');
+  onWaypoint(cb: WaypointCallback): void {
+    this._waypointCallback = cb;
   }
 }
