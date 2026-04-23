@@ -708,3 +708,112 @@ void main() {
     if (uPixelSize) gl.uniform1f(uPixelSize, this.pixelSize);
   }
 }
+
+/* ── FXAAOptions ── */
+
+export interface FXAAOptions {
+  /** 像素亮度对比阈值，默认 0.0625（建议 0.0313-0.0833） */
+  edgeThreshold?: number;
+  /** 最小边缘对比度阈值（绝对值），默认 0.0312 */
+  edgeThresholdMin?: number;
+  /** 子像素抗锯齿强度 [0, 1]，默认 0.75 */
+  subpixelQuality?: number;
+}
+
+/** 快速近似抗锯齿（Timothy Lottes FXAA 3.11 简化版）：基于亮度对比消除锯齿边缘 */
+export class FXAAPass implements EffectPass {
+  readonly name = 'fxaa';
+  enabled = true;
+  edgeThreshold: number;
+  edgeThresholdMin: number;
+  subpixelQuality: number;
+  texelSize: [number, number] = [0, 0];
+
+  constructor(options?: FXAAOptions) {
+    const edgeThreshold = options?.edgeThreshold ?? 0.0625;
+    const edgeThresholdMin = options?.edgeThresholdMin ?? 0.0312;
+    const subpixelQuality = options?.subpixelQuality ?? 0.75;
+
+    if (edgeThreshold < 0 || edgeThreshold > 1) {
+      throw new Error(`FXAAPass: edgeThreshold (${edgeThreshold}) 必须在 [0, 1] 范围内`);
+    }
+    if (edgeThresholdMin < 0) {
+      throw new Error(`FXAAPass: edgeThresholdMin (${edgeThresholdMin}) 不能为负数`);
+    }
+    if (subpixelQuality < 0 || subpixelQuality > 1) {
+      throw new Error(`FXAAPass: subpixelQuality (${subpixelQuality}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.edgeThreshold = edgeThreshold;
+    this.edgeThresholdMin = edgeThresholdMin;
+    this.subpixelQuality = subpixelQuality;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec2 u_texelSize;
+uniform float u_edgeThreshold;
+uniform float u_edgeThresholdMin;
+uniform float u_subpixelQuality;
+varying vec2 v_texCoord;
+
+float luma(vec3 rgb) {
+  return dot(rgb, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+  vec2 uv = v_texCoord;
+  vec3 colorC = texture2D(u_texture, uv).rgb;
+  float lumaC = luma(colorC);
+
+  float lumaN = luma(texture2D(u_texture, uv + vec2( 0.0,  u_texelSize.y)).rgb);
+  float lumaS = luma(texture2D(u_texture, uv + vec2( 0.0, -u_texelSize.y)).rgb);
+  float lumaE = luma(texture2D(u_texture, uv + vec2( u_texelSize.x,  0.0)).rgb);
+  float lumaW = luma(texture2D(u_texture, uv + vec2(-u_texelSize.x,  0.0)).rgb);
+
+  float lumaMax = max(max(lumaN, lumaS), max(lumaE, max(lumaW, lumaC)));
+  float lumaMin = min(min(lumaN, lumaS), min(lumaE, min(lumaW, lumaC)));
+  float lumaRange = lumaMax - lumaMin;
+
+  // 未达到阈值，直接输出原色
+  if (lumaRange < max(u_edgeThresholdMin, lumaMax * u_edgeThreshold)) {
+    gl_FragColor = vec4(colorC, 1.0);
+    return;
+  }
+
+  // 水平 / 垂直梯度判断主方向
+  float gradH = abs(lumaN - lumaS);
+  float gradV = abs(lumaE - lumaW);
+  bool isHorizontal = gradH >= gradV;
+
+  vec2 stepDir = isHorizontal ? vec2(0.0, u_texelSize.y) : vec2(u_texelSize.x, 0.0);
+  float lumaA = isHorizontal ? lumaN : lumaE;
+  float lumaB = isHorizontal ? lumaS : lumaW;
+  float gradA = abs(lumaA - lumaC);
+  float gradB = abs(lumaB - lumaC);
+  if (gradA < gradB) stepDir = -stepDir;
+
+  // 子像素混合
+  float lumaAvg = (lumaN + lumaS + lumaE + lumaW) * 0.25;
+  float subpixelBlend = clamp(abs(lumaAvg - lumaC) / lumaRange, 0.0, 1.0);
+  subpixelBlend = subpixelBlend * subpixelBlend * u_subpixelQuality;
+
+  vec3 colorBlend = texture2D(u_texture, uv + stepDir * 0.5).rgb;
+  gl_FragColor = vec4(mix(colorC, colorBlend, subpixelBlend), 1.0);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uEdgeThreshold = gl.getUniformLocation(program, 'u_edgeThreshold');
+    if (uEdgeThreshold) gl.uniform1f(uEdgeThreshold, this.edgeThreshold);
+    const uEdgeThresholdMin = gl.getUniformLocation(program, 'u_edgeThresholdMin');
+    if (uEdgeThresholdMin) gl.uniform1f(uEdgeThresholdMin, this.edgeThresholdMin);
+    const uSubpixelQuality = gl.getUniformLocation(program, 'u_subpixelQuality');
+    if (uSubpixelQuality) gl.uniform1f(uSubpixelQuality, this.subpixelQuality);
+    const uTexelSize = gl.getUniformLocation(program, 'u_texelSize');
+    if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
+  }
+}
