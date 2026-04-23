@@ -75,6 +75,10 @@ interface PhongLocations {
   // 高光贴图
   uSpecularMap: WebGLUniformLocation | null;
   uHasSpecularMap: WebGLUniformLocation | null;
+  // 环境映射
+  uEnvMap: WebGLUniformLocation | null;
+  uEnvMapIntensity: WebGLUniformLocation | null;
+  uReflectivity: WebGLUniformLocation | null;
   // 多方向光
   uNumDirLights: WebGLUniformLocation | null;
   uDirLightDirs: Array<WebGLUniformLocation | null>;
@@ -342,6 +346,7 @@ export class WebGLRenderer {
   private fogProgramCache: WeakMap<Material, CompiledProgram> = new WeakMap();
   private geometryCache: WeakMap<Geometry, UploadedGeometry> = new WeakMap();
   private textureCache: WeakMap<Texture, { glTex: WebGLTexture; version: number }> = new WeakMap();
+  private cubeTextureCache: WeakMap<CubeTexture, WebGLTexture> = new WeakMap();
   readonly info: RenderInfo = createRenderInfo();
   private skinningProgram: SkinningProgram | null = null;
   private lineProgramCache: WeakMap<LineMaterial, LineProgramInfo> = new WeakMap();
@@ -617,6 +622,33 @@ export class WebGLRenderer {
     return webglTex;
   }
 
+  private _getCubeTexture(texture: CubeTexture): WebGLTexture {
+    const gl = this.gl;
+    const cached = this.cubeTextureCache.get(texture);
+    if (cached && !texture.needsUpdate) return cached;
+
+    const glTex = cached ?? gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, glTex);
+
+    for (let i = 0; i < 6; i++) {
+      const face = texture.faces[i];
+      if (face !== null) {
+        gl.texImage2D(
+          gl.TEXTURE_CUBE_MAP_POSITIVE_X + i,
+          0, gl.RGBA, texture.faceSize, texture.faceSize,
+          0, gl.RGBA, gl.UNSIGNED_BYTE, face,
+        );
+      }
+    }
+
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    this.cubeTextureCache.set(texture, glTex);
+    texture.needsUpdate = false;
+    return glTex;
+  }
+
   // ── Private helpers ─────────────────────────────────────────────
 
   private _getProgram(material: Material, hasFog = false): CompiledProgram {
@@ -697,6 +729,9 @@ export class WebGLRenderer {
         uNormalScale:       gl.getUniformLocation(program, 'u_normalScale'),
         uSpecularMap:       gl.getUniformLocation(program, 'u_specularMap'),
         uHasSpecularMap:    gl.getUniformLocation(program, 'u_hasSpecularMap'),
+        uEnvMap:            gl.getUniformLocation(program, 'u_envMap'),
+        uEnvMapIntensity:   gl.getUniformLocation(program, 'u_envMapIntensity'),
+        uReflectivity:      gl.getUniformLocation(program, 'u_reflectivity'),
         uNumDirLights:      gl.getUniformLocation(program, 'u_numDirLights'),
         uDirLightDirs:      dirDirs,
         uDirLightColors:    dirColors,
@@ -1110,6 +1145,16 @@ export class WebGLRenderer {
         }
       } else {
         if (phong.uHasSpecularMap) gl.uniform1f(phong.uHasSpecularMap, 0.0);
+      }
+
+      // 环境映射（纹理单元 4）
+      if (mat.envMap != null) {
+        const cubeTex = this._getCubeTexture(mat.envMap);
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubeTex);
+        if (phong.uEnvMap)          gl.uniform1i(phong.uEnvMap, 4);
+        if (phong.uEnvMapIntensity) gl.uniform1f(phong.uEnvMapIntensity, mat.envMapIntensity);
+        if (phong.uReflectivity)    gl.uniform1f(phong.uReflectivity, mat.reflectivity);
       }
     }
 
