@@ -1,11 +1,12 @@
 /**
  * PhongMaterial — Blinn-Phong 光照材质
- * 支持：漫反射贴图、自发光、多光源
+ * 支持：漫反射贴图、自发光、多光源、环境映射
  */
 
 import { type Vec3, vec3 } from '../math/vec3';
 import { Material } from './material';
 import { Texture } from './texture';
+import type { CubeTexture } from './cube-texture';
 
 const PHONG_VERTEX_SHADER = `
   attribute vec3 a_position;
@@ -32,7 +33,20 @@ const PHONG_VERTEX_SHADER = `
   }
 `;
 
-const PHONG_FRAGMENT_SHADER = `
+function buildFragmentShader(hasEnvMap: boolean): string {
+  const envUniforms = hasEnvMap ? `
+  // 环境映射
+  uniform samplerCube u_envMap;
+  uniform float u_envMapIntensity;
+  uniform float u_reflectivity;` : '';
+
+  const envCode = hasEnvMap ? `
+    vec3 envI = normalize(v_worldPos - u_cameraPos);
+    vec3 envR = reflect(envI, N);
+    vec3 envColor = textureCube(u_envMap, envR).rgb * u_envMapIntensity;
+    finalColor = mix(finalColor, envColor, u_reflectivity);` : '';
+
+  return `
   precision mediump float;
   // 向后兼容（单光源，保留声明供旧测试检查）
   uniform vec3 u_lightDir;
@@ -75,6 +89,7 @@ const PHONG_FRAGMENT_SHADER = `
   // 高光贴图
   uniform sampler2D u_specularMap;
   uniform float u_hasSpecularMap;
+  ${envUniforms}
   varying vec3 v_normal;
   varying vec3 v_worldPos;
   varying vec2 v_uv;
@@ -154,11 +169,7 @@ const PHONG_FRAGMENT_SHADER = `
       }
       // 锥形衰减（smoothstep）
       float cosOuter = u_spotLightCosAngles[i];
-      float penumbra = u_spotLightPenumbras[i];
-      // cosInner = cos(angle * (1.0 - penumbra))，通过 cosOuter 反推 angle 再乘 (1-penumbra)
-      // 直接用 acos 会在 GLSL 1.0 中精度不稳，改为在 CPU 端传 cosInner
-      // 这里复用 penumbra 字段存储 cosInner
-      float cosInner = penumbra; // 注：renderer 中传 cos(angle*(1-penumbra))
+      float cosInner = u_spotLightPenumbras[i]; // 注：renderer 中传 cos(angle*(1-penumbra))
       float spotEffect = dot(normalize(v_worldPos - u_spotLightPositions[i]), u_spotLightDirs[i]);
       float spotAttenuation = smoothstep(cosOuter, cosInner, spotEffect);
       float attenuation = distAttenuation * spotAttenuation;
@@ -170,9 +181,12 @@ const PHONG_FRAGMENT_SHADER = `
       ? u_emissive * texture2D(u_emissiveMap, v_uv).rgb
       : u_emissive;
 
-    gl_FragColor = vec4(color + emissiveColor, 1.0);
+    vec3 finalColor = color + emissiveColor;
+    ${envCode}
+    gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
+}
 
 export interface PhongMaterialOptions {
   ambient?: Vec3;
@@ -185,6 +199,9 @@ export interface PhongMaterialOptions {
   normalMap?: Texture;
   normalScale?: number;
   specularMap?: Texture;
+  envMap?: CubeTexture | null;
+  envMapIntensity?: number;
+  reflectivity?: number;
 }
 
 export class PhongMaterial extends Material {
@@ -198,25 +215,31 @@ export class PhongMaterial extends Material {
   normalMap: Texture | null;
   normalScale: number;
   specularMap: Texture | null;
+  envMap: CubeTexture | null;
+  envMapIntensity: number;
+  reflectivity: number;
 
   constructor(opts: PhongMaterialOptions = {}) {
     super({
       vertexShader: PHONG_VERTEX_SHADER,
-      fragmentShader: PHONG_FRAGMENT_SHADER,
+      fragmentShader: buildFragmentShader(opts.envMap != null),
     });
-    this.ambient      = opts.ambient      ?? vec3(0.1, 0.1, 0.1);
-    this.diffuse      = opts.diffuse      ?? vec3(0.8, 0.8, 0.8);
-    this.specular     = opts.specular     ?? vec3(1.0, 1.0, 1.0);
-    this.shininess    = opts.shininess    ?? 32;
-    this.map          = opts.map          ?? null;
-    this.emissive     = opts.emissive     ?? vec3(0, 0, 0);
-    this.emissiveMap  = opts.emissiveMap  ?? null;
-    this.normalMap    = opts.normalMap    ?? null;
-    this.normalScale  = opts.normalScale  ?? 1.0;
-    this.specularMap  = opts.specularMap  ?? null;
+    this.ambient          = opts.ambient          ?? vec3(0.1, 0.1, 0.1);
+    this.diffuse          = opts.diffuse          ?? vec3(0.8, 0.8, 0.8);
+    this.specular         = opts.specular         ?? vec3(1.0, 1.0, 1.0);
+    this.shininess        = opts.shininess        ?? 32;
+    this.map              = opts.map              ?? null;
+    this.emissive         = opts.emissive         ?? vec3(0, 0, 0);
+    this.emissiveMap      = opts.emissiveMap      ?? null;
+    this.normalMap        = opts.normalMap        ?? null;
+    this.normalScale      = opts.normalScale      ?? 1.0;
+    this.specularMap      = opts.specularMap      ?? null;
+    this.envMap           = opts.envMap           ?? null;
+    this.envMapIntensity  = opts.envMapIntensity  ?? 1.0;
+    this.reflectivity     = opts.reflectivity     ?? 0;
   }
 
-  /** 克隆 Phong 材质（Vec3 属性深拷贝，Texture 引用共享） */
+  /** 克隆 Phong 材质（Vec3 属性深拷贝，Texture/CubeTexture 引用共享） */
   clone(): PhongMaterial {
     const m = new PhongMaterial({
       ambient:     vec3(this.ambient[0],  this.ambient[1],  this.ambient[2]),
@@ -229,6 +252,9 @@ export class PhongMaterial extends Material {
       normalMap:   this.normalMap    ?? undefined,
       normalScale: this.normalScale,
       specularMap: this.specularMap  ?? undefined,
+      envMap:      this.envMap       ?? undefined,
+      envMapIntensity: this.envMapIntensity,
+      reflectivity:    this.reflectivity,
     });
     m.opacity     = this.opacity;
     m.transparent = this.transparent;
