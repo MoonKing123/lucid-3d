@@ -530,3 +530,64 @@ void main() {
     void gl;
   }
 }
+
+/* ── FilmGrainOptions ── */
+
+export interface FilmGrainOptions {
+  /** 颗粒强度 [0, 1]，默认 0.15 */
+  intensity?: number;
+  /** 时间种子，默认 0，每帧外部递增以避免颗粒图案静止 */
+  time?: number;
+}
+
+/** 胶片颗粒噪声后处理：在最终输出上叠加伪随机噪声，模拟电影胶片颗粒感 */
+export class FilmGrainPass implements EffectPass {
+  readonly name = 'film-grain';
+  enabled = true;
+  intensity: number;
+  time: number;
+
+  constructor(options?: FilmGrainOptions) {
+    const intensity = options?.intensity ?? 0.15;
+    const time = options?.time ?? 0;
+
+    if (!Number.isFinite(intensity)) {
+      throw new Error(`FilmGrainPass: intensity (${intensity}) 必须是有限数值`);
+    }
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`FilmGrainPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+    if (!Number.isFinite(time)) {
+      throw new Error(`FilmGrainPass: time (${time}) 必须是有限数值`);
+    }
+    if (time < 0) {
+      throw new Error(`FilmGrainPass: time (${time}) 不能为负数`);
+    }
+
+    this.intensity = intensity;
+    this.time = time;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_intensity;
+uniform float u_time;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  float noise = fract(sin(dot(v_texCoord + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+  vec3 grain = color.rgb + (noise - 0.5) * 2.0 * u_intensity;
+  gl_FragColor = vec4(clamp(grain, 0.0, 1.0), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+    const uTime = gl.getUniformLocation(program, 'u_time');
+    if (uTime) gl.uniform1f(uTime, this.time);
+  }
+}
