@@ -1103,3 +1103,76 @@ void main() {
     if (uMidpoint) gl.uniform1f(uMidpoint, this.midpoint);
   }
 }
+
+/* ── ScanlineOptions ── */
+
+export interface ScanlineOptions {
+  /** 扫描线强度 [0, 1]，0=无效果，1=最强。默认 0.3 */
+  intensity?: number;
+  /** 扫描线密度（每像素几条线）[0.1, 10]，默认 1.0 */
+  density?: number;
+  /** 扫描线移动速度（时间相关），单位 px/s。默认 0 = 静态 */
+  speed?: number;
+  /** 当前时间（由 GameLoop 注入，用于动画）。默认 0 */
+  time?: number;
+}
+
+/** CRT 扫描线复古后处理：模拟 CRT 显示器水平扫描线，适用于复古/retro wave 风格 */
+export class ScanlinePass implements EffectPass {
+  readonly name = 'scanline';
+  enabled = true;
+  intensity: number;
+  density: number;
+  speed: number;
+  time: number;
+
+  constructor(options?: ScanlineOptions) {
+    const intensity = options?.intensity ?? 0.3;
+    const density = options?.density ?? 1.0;
+    const speed = options?.speed ?? 0;
+    const time = options?.time ?? 0;
+
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`ScanlinePass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+    if (density < 0.1 || density > 10) {
+      throw new Error(`ScanlinePass: density (${density}) 必须在 [0.1, 10] 范围内`);
+    }
+
+    this.intensity = intensity;
+    this.density = density;
+    this.speed = speed;
+    this.time = time;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_intensity;
+uniform float u_density;
+uniform float u_speed;
+uniform float u_time;
+uniform vec2 u_resolution;
+varying vec2 v_texCoord;
+void main() {
+  vec4 col = texture2D(u_texture, v_texCoord);
+  float y = gl_FragCoord.y + u_time * u_speed;
+  float line = sin(y * u_density * 3.14159265) * 0.5 + 0.5;
+  float dark = mix(1.0, line, u_intensity);
+  gl_FragColor = vec4(col.rgb * dark, col.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+    const uDensity = gl.getUniformLocation(program, 'u_density');
+    if (uDensity) gl.uniform1f(uDensity, this.density);
+    const uSpeed = gl.getUniformLocation(program, 'u_speed');
+    if (uSpeed) gl.uniform1f(uSpeed, this.speed);
+    const uTime = gl.getUniformLocation(program, 'u_time');
+    if (uTime) gl.uniform1f(uTime, this.time);
+  }
+}
