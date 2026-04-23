@@ -38,6 +38,11 @@ export class PostProcessor {
   private _width = 0;
   private _height = 0;
 
+  constructor(options?: { width?: number; height?: number }) {
+    if (options?.width) this._width = options.width;
+    if (options?.height) this._height = options.height;
+  }
+
   // ping-pong 双缓冲 FBO
   private _fbos: (WebGLFramebuffer | null)[] = [null, null];
   private _textures: (WebGLTexture | null)[] = [null, null];
@@ -365,5 +370,75 @@ void main() {
     if (uThreshold) gl.uniform1f(uThreshold, this.threshold);
     const uIntensity = gl.getUniformLocation(program, 'u_intensity');
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
+
+/* ── VignetteOptions ── */
+
+export interface VignetteOptions {
+  /** 内半径：dist <= 此值时不变暗。默认 0.4 */
+  innerRadius?: number;
+  /** 外半径：dist >= 此值时变最暗。默认 0.8 */
+  outerRadius?: number;
+  /** 暗角强度：0=无, 1=四角全黑。默认 0.6 */
+  intensity?: number;
+}
+
+/** 屏幕暗角效果：径向 smoothstep 衰减，营造电影感聚焦中心 */
+export class VignettePass implements EffectPass {
+  readonly name = 'vignette';
+  enabled = true;
+  innerRadius: number;
+  outerRadius: number;
+  intensity: number;
+
+  constructor(options?: VignetteOptions) {
+    const inner = options?.innerRadius ?? 0.4;
+    const outer = options?.outerRadius ?? 0.8;
+    const intensity = options?.intensity ?? 0.6;
+
+    if (inner >= outer) {
+      throw new Error(`VignettePass: innerRadius (${inner}) 必须小于 outerRadius (${outer})`);
+    }
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`VignettePass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.innerRadius = inner;
+    this.outerRadius = outer;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_innerRadius;
+uniform float u_outerRadius;
+uniform float u_intensity;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec2 center = vec2(0.5);
+  float dist = distance(v_texCoord, center);
+  float vignette = 1.0 - smoothstep(u_innerRadius, u_outerRadius, dist) * u_intensity;
+  gl_FragColor = vec4(color.rgb * vignette, color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uInner = gl.getUniformLocation(program, 'u_innerRadius');
+    if (uInner) gl.uniform1f(uInner, this.innerRadius);
+    const uOuter = gl.getUniformLocation(program, 'u_outerRadius');
+    if (uOuter) gl.uniform1f(uOuter, this.outerRadius);
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+
+  apply(gl: WebGLRenderingContext, _input: WebGLTexture, _output: WebGLFramebuffer | null): void {
+    // apply 由外部 PostProcessor 调用时会走 render 路径
+    // 此方法提供 duck-typing 兼容
+    void gl;
   }
 }
