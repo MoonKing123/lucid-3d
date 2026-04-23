@@ -189,7 +189,10 @@ describeImpl('Curve3 — closed curve', () => {
 
 describeImpl('Curve3 — tension parameter', () => {
   it('should produce different mid-points with different tension values', () => {
-    const pts = [vec3(0, 0, 0), vec3(1, 2, 0), vec3(2, 0, 0), vec3(3, 2, 0)];
+    // Asymmetric points — P0+P3 != P1+P2, so tension affects the midpoint.
+    // (A symmetric configuration like [(0,0,0),(1,2,0),(2,0,0),(3,2,0)] would
+    // make the tension term cancel at t=0.5, giving the same point for any alpha.)
+    const pts = [vec3(0, 0, 0), vec3(1, 2, 0), vec3(2, 0, 0), vec3(4, 2, 0)];
     const c0 = new mod.Curve3(pts, { tension: 0 });
     const c1 = new mod.Curve3(pts, { tension: 0.8 });
     const p0 = c0.getPoint(0.5);
