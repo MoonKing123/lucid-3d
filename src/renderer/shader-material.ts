@@ -15,8 +15,6 @@
  * @module renderer/shader-material
  */
 
-export const __STUB__ = true;
-
 import { Material } from './material';
 import type { Texture } from './texture';
 
@@ -38,19 +36,39 @@ export interface ShaderMaterialOptions {
 export class ShaderMaterial extends Material {
   uniforms: Record<string, UniformDef>;
 
-  constructor(_opts: ShaderMaterialOptions) {
-    super({ vertexShader: '', fragmentShader: '' });
+  constructor(opts: ShaderMaterialOptions) {
+    super({ vertexShader: opts.vertexShader, fragmentShader: opts.fragmentShader });
     this.uniforms = {};
-    throw new Error('Not implemented — stub');
+    if (opts.uniforms) {
+      for (const [name, def] of Object.entries(opts.uniforms)) {
+        this.uniforms[name] = { type: def.type, value: def.value };
+      }
+    }
   }
 
   /** Update value of an existing uniform. Throws if name not declared. */
-  setUniform(_name: string, _value: UniformDef['value']): void {
-    throw new Error('Not implemented — stub');
+  setUniform(name: string, value: UniformDef['value']): void {
+    if (!(name in this.uniforms)) {
+      throw new Error(`Uniform "${name}" is not declared in this ShaderMaterial`);
+    }
+    this.uniforms[name].value = value;
   }
 
   /** Deep clone including uniforms map. */
   clone(): ShaderMaterial {
-    throw new Error('Not implemented — stub');
+    const cloned = new ShaderMaterial({
+      vertexShader: this.vertexShader,
+      fragmentShader: this.fragmentShader,
+    });
+    for (const [name, def] of Object.entries(this.uniforms)) {
+      cloned.uniforms[name] = { type: def.type, value: copyValue(def.value) };
+    }
+    return cloned;
   }
+}
+
+function copyValue(value: UniformDef['value']): UniformDef['value'] {
+  if (value instanceof Float32Array) return new Float32Array(value);
+  if (Array.isArray(value)) return [...value];
+  return value;
 }
