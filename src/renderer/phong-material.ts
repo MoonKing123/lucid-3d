@@ -85,6 +85,13 @@ const PHONG_FRAGMENT_SHADER = `
     vec3 N = normalize(v_normal);
     vec3 V = normalize(u_cameraPos - v_worldPos);
 
+    if (u_hasNormalMap > 0.5) {
+      vec3 mapN = texture2D(u_normalMap, v_uv).rgb * 2.0 - 1.0;
+      mapN.xy *= u_normalScale;
+      mat3 TBN = mat3(normalize(v_tangent), normalize(v_bitangent), N);
+      N = normalize(TBN * mapN);
+    }
+
     vec3 baseDiffuse = u_hasMap > 0.5
       ? texture2D(u_map, v_uv).rgb * u_diffuse
       : u_diffuse;
