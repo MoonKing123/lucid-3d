@@ -37,6 +37,9 @@ export class Node3D {
   }
 
   /** Add a child node, removing it from its previous parent first. */
+  add(child: Node3D): void { this.addChild(child); }
+
+  /** Add a child node, removing it from its previous parent first. */
   addChild(child: Node3D): void {
     if (child.parent) {
       child.parent.removeChild(child);
