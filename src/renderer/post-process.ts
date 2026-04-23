@@ -1593,3 +1593,58 @@ void main() {
   }
 }
 
+/* ── VibrancePass ── */
+
+export interface VibranceOptions {
+  /** 自然饱和度调整，[-1, 1]。正值提升未饱和色，负值降低饱和。默认 0 */
+  vibrance?: number;
+}
+
+/** 自然饱和度后处理：对未饱和色影响大、对已饱和色影响小（Lightroom Vibrance 业界标准） */
+export class VibrancePass implements EffectPass {
+  readonly name = 'vibrance';
+  enabled = true;
+  vibrance: number;
+
+  constructor(options?: VibranceOptions) {
+    this.vibrance = options?.vibrance ?? 0;
+    if (!isFinite(this.vibrance)) {
+      throw new Error(`VibrancePass: vibrance must be finite, got ${this.vibrance}`);
+    }
+    if (this.vibrance < -1 || this.vibrance > 1) {
+      throw new Error(`VibrancePass: vibrance must be in [-1, 1], got ${this.vibrance}`);
+    }
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform float u_vibrance;
+
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 rgb = color.rgb;
+
+  float maxC = max(max(rgb.r, rgb.g), rgb.b);
+  float minC = min(min(rgb.r, rgb.g), rgb.b);
+  float currentSat = maxC - minC;
+
+  float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+
+  float weight = 1.0 - currentSat;
+
+  vec3 adjusted = mix(vec3(luma), rgb, 1.0 + u_vibrance * weight);
+
+  gl_FragColor = vec4(clamp(adjusted, 0.0, 1.0), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const loc = gl.getUniformLocation(program, 'u_vibrance');
+    if (loc) gl.uniform1f(loc, this.vibrance);
+  }
+}
+
