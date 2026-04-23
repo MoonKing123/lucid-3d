@@ -817,3 +817,90 @@ void main() {
     if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
   }
 }
+
+/* ── OutlineOptions ── */
+
+export interface OutlineOptions {
+  /** 描边颜色 RGB，默认 [0, 0, 0]（黑色） */
+  color?: [number, number, number];
+  /** 描边粗细（采样步长倍数），范围 [0.5, 3]，默认 1.0 */
+  thickness?: number;
+  /** 亮度差异阈值 [0, 1]，超过该阈值判定为边缘，默认 0.1 */
+  threshold?: number;
+}
+
+/** Sobel 边缘检测描边后处理：基于亮度梯度识别边缘并叠加描边色 */
+export class OutlinePass implements EffectPass {
+  readonly name = 'outline';
+  enabled = true;
+  color: [number, number, number];
+  thickness: number;
+  threshold: number;
+  texelSize: [number, number] = [0, 0];
+
+  constructor(options?: OutlineOptions) {
+    const color = options?.color ?? [0, 0, 0];
+    const thickness = options?.thickness ?? 1.0;
+    const threshold = options?.threshold ?? 0.1;
+
+    if (color.length !== 3) {
+      throw new Error(`OutlinePass: color 必须是长度为 3 的数组`);
+    }
+    if (thickness < 0.5 || thickness > 3) {
+      throw new Error(`OutlinePass: thickness (${thickness}) 必须在 [0.5, 3] 范围内`);
+    }
+    if (threshold < 0 || threshold > 1) {
+      throw new Error(`OutlinePass: threshold (${threshold}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.color = color;
+    this.thickness = thickness;
+    this.threshold = threshold;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec2 u_texelSize;
+uniform vec3 u_outlineColor;
+uniform float u_thickness;
+uniform float u_threshold;
+varying vec2 v_texCoord;
+float luma(vec3 c) {
+  return dot(c, vec3(0.299, 0.587, 0.114));
+}
+void main() {
+  vec2 step = u_texelSize * u_thickness;
+  float tl = luma(texture2D(u_texture, v_texCoord + vec2(-step.x,  step.y)).rgb);
+  float tc = luma(texture2D(u_texture, v_texCoord + vec2(     0.0,  step.y)).rgb);
+  float tr = luma(texture2D(u_texture, v_texCoord + vec2( step.x,  step.y)).rgb);
+  float ml = luma(texture2D(u_texture, v_texCoord + vec2(-step.x,      0.0)).rgb);
+  float mr = luma(texture2D(u_texture, v_texCoord + vec2( step.x,      0.0)).rgb);
+  float bl = luma(texture2D(u_texture, v_texCoord + vec2(-step.x, -step.y)).rgb);
+  float bc = luma(texture2D(u_texture, v_texCoord + vec2(     0.0, -step.y)).rgb);
+  float br = luma(texture2D(u_texture, v_texCoord + vec2( step.x, -step.y)).rgb);
+  float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
+  float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
+  float gradient = sqrt(gx * gx + gy * gy);
+  vec4 base = texture2D(u_texture, v_texCoord);
+  if (gradient > u_threshold) {
+    gl_FragColor = vec4(u_outlineColor, base.a);
+  } else {
+    gl_FragColor = base;
+  }
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uColor = gl.getUniformLocation(program, 'u_outlineColor');
+    if (uColor) gl.uniform3f(uColor, this.color[0], this.color[1], this.color[2]);
+    const uThickness = gl.getUniformLocation(program, 'u_thickness');
+    if (uThickness) gl.uniform1f(uThickness, this.thickness);
+    const uThreshold = gl.getUniformLocation(program, 'u_threshold');
+    if (uThreshold) gl.uniform1f(uThreshold, this.threshold);
+    const uTexelSize = gl.getUniformLocation(program, 'u_texelSize');
+    if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
+  }
+}
