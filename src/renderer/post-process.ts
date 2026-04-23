@@ -904,3 +904,56 @@ void main() {
     if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
   }
 }
+
+/* ── SharpenOptions ── */
+
+export interface SharpenOptions {
+  /** 锐化强度 [0, 1]，默认 0.5。0 = 无锐化（原图），1 = 强锐化 */
+  intensity?: number;
+}
+
+/** Laplacian 5-tap cross kernel 锐化后处理：提升图像细节清晰度 */
+export class SharpenPass implements EffectPass {
+  readonly name = 'sharpen';
+  enabled = true;
+  intensity: number;
+  texelSize: [number, number] = [0, 0];
+
+  constructor(options?: SharpenOptions) {
+    const intensity = options?.intensity ?? 0.5;
+
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`SharpenPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec2 u_texelSize;
+uniform float u_intensity;
+varying vec2 v_texCoord;
+void main() {
+  vec4 center = texture2D(u_texture, v_texCoord);
+  vec4 north  = texture2D(u_texture, v_texCoord + vec2( 0.0,  u_texelSize.y));
+  vec4 south  = texture2D(u_texture, v_texCoord + vec2( 0.0, -u_texelSize.y));
+  vec4 east   = texture2D(u_texture, v_texCoord + vec2( u_texelSize.x,  0.0));
+  vec4 west   = texture2D(u_texture, v_texCoord + vec2(-u_texelSize.x,  0.0));
+  // Laplacian 5-tap cross kernel: center + intensity * (5.0*center - N - S - E - W)
+  vec4 laplacian = 5.0 * center - north - south - east - west;
+  vec4 sharpened = center + u_intensity * laplacian;
+  gl_FragColor = vec4(clamp(sharpened.rgb, 0.0, 1.0), center.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+    const uTexelSize = gl.getUniformLocation(program, 'u_texelSize');
+    if (uTexelSize) gl.uniform2f(uTexelSize, this.texelSize[0], this.texelSize[1]);
+  }
+}
