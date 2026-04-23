@@ -1517,3 +1517,79 @@ void main() {
   }
 }
 
+/* ── LiftGammaGainPass ── */
+
+export interface LiftGammaGainOptions {
+  /** 阴影偏移 (lift)，每通道 [-1, 1]。默认 [0, 0, 0]（无偏移） */
+  lift?: [number, number, number];
+  /** 中间调曲线 (gamma)，每通道 [0.1, 5]。默认 [1, 1, 1]（线性） */
+  gamma?: [number, number, number];
+  /** 高光倍数 (gain)，每通道 [0, 5]。默认 [1, 1, 1]（恒等） */
+  gain?: [number, number, number];
+}
+
+/** 三段调色后处理：分别控制阴影 lift、中间调 gamma、高光 gain（DaVinci Resolve 标准公式） */
+export class LiftGammaGainPass implements EffectPass {
+  readonly name = 'liftGammaGain';
+  enabled = true;
+  lift: [number, number, number];
+  gamma: [number, number, number];
+  gain: [number, number, number];
+
+  constructor(options?: LiftGammaGainOptions) {
+    this.lift = options?.lift ?? [0, 0, 0];
+    this.gamma = options?.gamma ?? [1, 1, 1];
+    this.gain = options?.gain ?? [1, 1, 1];
+
+    for (let i = 0; i < 3; i++) {
+      if (!isFinite(this.lift[i])) {
+        throw new Error(`LiftGammaGainPass: lift[${i}] must be finite, got ${this.lift[i]}`);
+      }
+      if (this.lift[i] < -1 || this.lift[i] > 1) {
+        throw new Error(`LiftGammaGainPass: lift[${i}] must be in [-1, 1], got ${this.lift[i]}`);
+      }
+      if (!isFinite(this.gamma[i])) {
+        throw new Error(`LiftGammaGainPass: gamma[${i}] must be finite, got ${this.gamma[i]}`);
+      }
+      if (this.gamma[i] < 0.1 || this.gamma[i] > 5) {
+        throw new Error(`LiftGammaGainPass: gamma[${i}] must be in [0.1, 5], got ${this.gamma[i]}`);
+      }
+      if (!isFinite(this.gain[i])) {
+        throw new Error(`LiftGammaGainPass: gain[${i}] must be finite, got ${this.gain[i]}`);
+      }
+      if (this.gain[i] < 0 || this.gain[i] > 5) {
+        throw new Error(`LiftGammaGainPass: gain[${i}] must be in [0, 5], got ${this.gain[i]}`);
+      }
+    }
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform vec3 u_lift;
+uniform vec3 u_gamma;
+uniform vec3 u_gain;
+
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 rgb = color.rgb;
+  rgb = rgb + u_lift * (vec3(1.0) - rgb);
+  rgb = rgb * u_gain;
+  rgb = pow(max(rgb, vec3(0.0)), vec3(1.0) / max(u_gamma, vec3(0.01)));
+  gl_FragColor = vec4(clamp(rgb, 0.0, 1.0), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const liftLoc = gl.getUniformLocation(program, 'u_lift');
+    if (liftLoc) gl.uniform3fv(liftLoc, this.lift);
+    const gammaLoc = gl.getUniformLocation(program, 'u_gamma');
+    if (gammaLoc) gl.uniform3fv(gammaLoc, this.gamma);
+    const gainLoc = gl.getUniformLocation(program, 'u_gain');
+    if (gainLoc) gl.uniform3fv(gainLoc, this.gain);
+  }
+}
+
