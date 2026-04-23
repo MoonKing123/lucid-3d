@@ -1004,3 +1004,48 @@ void main() {
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
   }
 }
+
+/* ── SaturationOptions ── */
+
+export interface SaturationOptions {
+  /** 饱和度乘子 [0, 3]，0=灰度，1=原色（默认），2=过饱和 */
+  saturation?: number;
+}
+
+/** 饱和度调整后处理：Rec. 709 luma-based desaturation，支持 0=灰度 / 1=原色 / 2=过饱和 */
+export class SaturationPass implements EffectPass {
+  readonly name = 'saturation';
+  enabled = true;
+  saturation: number;
+
+  constructor(options?: SaturationOptions) {
+    const saturation = options?.saturation ?? 1.0;
+
+    if (saturation < 0 || saturation > 3) {
+      throw new Error(`SaturationPass: saturation (${saturation}) 必须在 [0, 3] 范围内`);
+    }
+
+    this.saturation = saturation;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_saturation;
+varying vec2 v_texCoord;
+void main() {
+  vec4 col = texture2D(u_texture, v_texCoord);
+  float luma = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
+  vec3 gray = vec3(luma);
+  vec3 final = mix(gray, col.rgb, u_saturation);
+  gl_FragColor = vec4(final, col.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uSaturation = gl.getUniformLocation(program, 'u_saturation');
+    if (uSaturation) gl.uniform1f(uSaturation, this.saturation);
+  }
+}
