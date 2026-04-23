@@ -591,3 +591,74 @@ void main() {
     if (uTime) gl.uniform1f(uTime, this.time);
   }
 }
+
+/* ── ChromaticAberrationOptions ── */
+
+export interface ChromaticAberrationOptions {
+  /** R 通道水平偏移像素，默认 2.0 */
+  redOffset?: number;
+  /** B 通道水平偏移像素，默认 -2.0 */
+  blueOffset?: number;
+  /** 整体强度 [0, 1]，默认 1.0 */
+  intensity?: number;
+}
+
+/** RGB 通道色差效果：模拟镜头色散，常用于赛博朋克 / 恐怖 / 动作风格 */
+export class ChromaticAberrationPass implements EffectPass {
+  readonly name = 'chromatic-aberration';
+  enabled = true;
+  redOffset: number;
+  blueOffset: number;
+  intensity: number;
+
+  constructor(options?: ChromaticAberrationOptions) {
+    const redOffset = options?.redOffset ?? 2.0;
+    const blueOffset = options?.blueOffset ?? -2.0;
+    const intensity = options?.intensity ?? 1.0;
+
+    if (!Number.isFinite(redOffset)) {
+      throw new Error(`ChromaticAberrationPass: redOffset (${redOffset}) 必须是有限数值`);
+    }
+    if (!Number.isFinite(blueOffset)) {
+      throw new Error(`ChromaticAberrationPass: blueOffset (${blueOffset}) 必须是有限数值`);
+    }
+    if (!Number.isFinite(intensity) || intensity < 0 || intensity > 1) {
+      throw new Error(`ChromaticAberrationPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.redOffset = redOffset;
+    this.blueOffset = blueOffset;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_redOffset;
+uniform float u_blueOffset;
+uniform float u_intensity;
+uniform vec2 u_texelSize;
+varying vec2 v_texCoord;
+void main() {
+  vec2 redCoord = v_texCoord + vec2(u_redOffset * u_texelSize.x, 0.0);
+  vec2 blueCoord = v_texCoord + vec2(u_blueOffset * u_texelSize.x, 0.0);
+  float r = texture2D(u_texture, redCoord).r;
+  vec4 base = texture2D(u_texture, v_texCoord);
+  float g = base.g;
+  float b = texture2D(u_texture, blueCoord).b;
+  vec3 aberrated = vec3(r, g, b);
+  gl_FragColor = vec4(mix(base.rgb, aberrated, u_intensity), base.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uRedOffset = gl.getUniformLocation(program, 'u_redOffset');
+    if (uRedOffset) gl.uniform1f(uRedOffset, this.redOffset);
+    const uBlueOffset = gl.getUniformLocation(program, 'u_blueOffset');
+    if (uBlueOffset) gl.uniform1f(uBlueOffset, this.blueOffset);
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
