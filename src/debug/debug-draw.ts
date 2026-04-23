@@ -5,11 +5,7 @@
  * 自动累积到 buffer，flush() 后清空。供 AI Agent 调试运行时几何/路径/碰撞用。
  *
  * @see test/unit/debug/debug-draw.test.ts
- *
- * STUB — Phase 44 Architect 预写
  */
-
-export const __STUB__ = true;
 
 import type { Vec3 } from '../math/vec3';
 
@@ -41,44 +37,55 @@ export interface DebugArrow {
   headSize: number;
 }
 
+const WHITE: Vec3 = [1, 1, 1];
+
 export class DebugDraw {
-  drawLine(_start: Vec3, _end: Vec3, _color?: Vec3, _thickness?: number): void {
-    throw new Error('Not implemented');
+  private _lines: DebugLine[] = [];
+  private _spheres: DebugSphere[] = [];
+  private _boxes: DebugBox[] = [];
+  private _arrows: DebugArrow[] = [];
+
+  drawLine(start: Vec3, end: Vec3, color: Vec3 = WHITE, thickness: number = 1): void {
+    this._lines.push({ start, end, color, thickness });
   }
 
-  drawSphere(_center: Vec3, _radius: number, _color?: Vec3, _segments?: number): void {
-    throw new Error('Not implemented');
+  drawSphere(center: Vec3, radius: number, color: Vec3 = WHITE, segments: number = 16): void {
+    if (radius <= 0) throw new Error(`drawSphere: radius 必须大于 0，收到 ${radius}`);
+    this._spheres.push({ center, radius, color, segments });
   }
 
-  drawBox(_min: Vec3, _max: Vec3, _color?: Vec3): void {
-    throw new Error('Not implemented');
+  drawBox(min: Vec3, max: Vec3, color: Vec3 = WHITE): void {
+    this._boxes.push({ min, max, color });
   }
 
-  drawArrow(_origin: Vec3, _direction: Vec3, _length: number, _color?: Vec3, _headSize?: number): void {
-    throw new Error('Not implemented');
+  drawArrow(origin: Vec3, direction: Vec3, length: number, color: Vec3 = WHITE, headSize?: number): void {
+    this._arrows.push({ origin, direction, length, color, headSize: headSize ?? 0.2 * length });
   }
 
   getLines(): readonly DebugLine[] {
-    throw new Error('Not implemented');
+    return this._lines;
   }
 
   getSpheres(): readonly DebugSphere[] {
-    throw new Error('Not implemented');
+    return this._spheres;
   }
 
   getBoxes(): readonly DebugBox[] {
-    throw new Error('Not implemented');
+    return this._boxes;
   }
 
   getArrows(): readonly DebugArrow[] {
-    throw new Error('Not implemented');
+    return this._arrows;
   }
 
   flush(): void {
-    throw new Error('Not implemented');
+    this._lines = [];
+    this._spheres = [];
+    this._boxes = [];
+    this._arrows = [];
   }
 
   get count(): number {
-    throw new Error('Not implemented');
+    return this._lines.length + this._spheres.length + this._boxes.length + this._arrows.length;
   }
 }
