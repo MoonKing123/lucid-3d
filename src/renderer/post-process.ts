@@ -1050,6 +1050,73 @@ void main() {
   }
 }
 
+/* ── HueRotateOptions ── */
+
+export interface HueRotateOptions {
+  /** 色相旋转角度（弧度），-2π 到 2π，0 = 无变化。默认 0 */
+  angle?: number;
+  /** 饱和度保留因子 [0, 1]，控制旋转后是否保持饱和度。默认 1 */
+  saturation?: number;
+}
+
+/** HSV 色相旋转后处理：通过 YIQ 色彩空间旋转矩阵实现快速色相偏移 */
+export class HueRotatePass implements EffectPass {
+  readonly name = 'hueRotate';
+  enabled = true;
+  angle: number;
+  saturation: number;
+
+  constructor(options?: HueRotateOptions) {
+    const angle = options?.angle ?? 0;
+    const saturation = options?.saturation ?? 1;
+
+    if (angle < -Math.PI * 2 || angle > Math.PI * 2) {
+      throw new Error(`HueRotatePass: angle (${angle}) 必须在 [-2π, 2π] 范围内`);
+    }
+    if (saturation < 0 || saturation > 1) {
+      throw new Error(`HueRotatePass: saturation (${saturation}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.angle = angle;
+    this.saturation = saturation;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_angle;
+uniform float u_saturation;
+varying vec2 v_texCoord;
+void main() {
+  vec4 col = texture2D(u_texture, v_texCoord);
+  float y = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+  float i = dot(col.rgb, vec3(0.596, -0.274, -0.322));
+  float q = dot(col.rgb, vec3(0.211, -0.523, 0.312));
+  float c = cos(u_angle);
+  float s = sin(u_angle);
+  float iRot = c * i - s * q;
+  float qRot = s * i + c * q;
+  iRot *= u_saturation;
+  qRot *= u_saturation;
+  vec3 rgb = vec3(
+    y + 0.956 * iRot + 0.621 * qRot,
+    y - 0.272 * iRot - 0.647 * qRot,
+    y - 1.106 * iRot + 1.703 * qRot
+  );
+  gl_FragColor = vec4(clamp(rgb, 0.0, 1.0), col.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uAngle = gl.getUniformLocation(program, 'u_angle');
+    if (uAngle) gl.uniform1f(uAngle, this.angle);
+    const uSaturation = gl.getUniformLocation(program, 'u_saturation');
+    if (uSaturation) gl.uniform1f(uSaturation, this.saturation);
+  }
+}
+
 /* ── ContrastOptions ── */
 
 export interface ContrastOptions {
