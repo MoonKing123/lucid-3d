@@ -1049,3 +1049,57 @@ void main() {
     if (uSaturation) gl.uniform1f(uSaturation, this.saturation);
   }
 }
+
+/* ── ContrastOptions ── */
+
+export interface ContrastOptions {
+  /** 对比度乘子 [0, 3]，1=原图（默认），<1 降低对比，>1 增加对比 */
+  contrast?: number;
+  /** 对比度中心（灰度参考点）[0, 1]，默认 0.5 */
+  midpoint?: number;
+}
+
+/** 围绕 midpoint 缩放的对比度调整后处理 */
+export class ContrastPass implements EffectPass {
+  readonly name = 'contrast';
+  enabled = true;
+  contrast: number;
+  midpoint: number;
+
+  constructor(options?: ContrastOptions) {
+    const contrast = options?.contrast ?? 1.0;
+    const midpoint = options?.midpoint ?? 0.5;
+
+    if (contrast < 0 || contrast > 3) {
+      throw new Error(`ContrastPass: contrast (${contrast}) 必须在 [0, 3] 范围内`);
+    }
+    if (midpoint < 0 || midpoint > 1) {
+      throw new Error(`ContrastPass: midpoint (${midpoint}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.contrast = contrast;
+    this.midpoint = midpoint;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_contrast;
+uniform float u_midpoint;
+varying vec2 v_texCoord;
+void main() {
+  vec4 col = texture2D(u_texture, v_texCoord);
+  vec3 adjusted = (col.rgb - vec3(u_midpoint)) * u_contrast + vec3(u_midpoint);
+  gl_FragColor = vec4(clamp(adjusted, 0.0, 1.0), col.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uContrast = gl.getUniformLocation(program, 'u_contrast');
+    if (uContrast) gl.uniform1f(uContrast, this.contrast);
+    const uMidpoint = gl.getUniformLocation(program, 'u_midpoint');
+    if (uMidpoint) gl.uniform1f(uMidpoint, this.midpoint);
+  }
+}
