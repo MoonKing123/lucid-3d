@@ -1462,3 +1462,58 @@ void main() {
   }
 }
 
+/* ── HighlightShadowPass ── */
+
+export interface HighlightShadowOptions {
+  /** 高光调整，[-1, 1]。正值提亮高光，负值压暗。默认 0 */
+  highlights?: number;
+  /** 阴影调整，[-1, 1]。正值提亮阴影，负值压暗。默认 0 */
+  shadows?: number;
+}
+
+/** 高光/阴影分区调整：基于 Rec.709 luma mask 独立控制亮区和暗区 */
+export class HighlightShadowPass implements EffectPass {
+  readonly name = 'highlightShadow';
+  enabled = true;
+  highlights: number;
+  shadows: number;
+
+  constructor(options?: HighlightShadowOptions) {
+    this.highlights = options?.highlights ?? 0;
+    this.shadows = options?.shadows ?? 0;
+    if (!isFinite(this.highlights) || this.highlights < -1 || this.highlights > 1) {
+      throw new Error(`HighlightShadowPass: highlights must be in [-1, 1], got ${this.highlights}`);
+    }
+    if (!isFinite(this.shadows) || this.shadows < -1 || this.shadows > 1) {
+      throw new Error(`HighlightShadowPass: shadows must be in [-1, 1], got ${this.shadows}`);
+    }
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_highlights;
+uniform float u_shadows;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 rgb = color.rgb;
+  float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  float shadowMask = smoothstep(0.5, 0.0, luma);
+  float highlightMask = smoothstep(0.5, 1.0, luma);
+  rgb += u_shadows * shadowMask * 0.3;
+  rgb += u_highlights * highlightMask * 0.3;
+  gl_FragColor = vec4(clamp(rgb, 0.0, 1.0), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const hlLoc = gl.getUniformLocation(program, 'u_highlights');
+    if (hlLoc) gl.uniform1f(hlLoc, this.highlights);
+    const shLoc = gl.getUniformLocation(program, 'u_shadows');
+    if (shLoc) gl.uniform1f(shLoc, this.shadows);
+  }
+}
+
