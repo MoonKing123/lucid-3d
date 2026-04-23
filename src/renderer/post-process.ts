@@ -662,3 +662,49 @@ void main() {
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
   }
 }
+/* ── PixelateOptions ── */
+
+export interface PixelateOptions {
+  /** 像素块大小（单位：屏幕像素），默认 8，最小 1 */
+  pixelSize?: number;
+}
+
+/** 像素化后处理：将屏幕划分为像素网格，每格统一采样，模拟复古像素游戏视觉 */
+export class PixelatePass implements EffectPass {
+  readonly name = 'pixelate';
+  enabled = true;
+  pixelSize: number;
+
+  constructor(options?: PixelateOptions) {
+    const pixelSize = options?.pixelSize ?? 8;
+
+    if (!Number.isFinite(pixelSize)) {
+      throw new Error(`PixelatePass: pixelSize (${pixelSize}) 必须是有限数值`);
+    }
+    if (pixelSize < 1) {
+      throw new Error(`PixelatePass: pixelSize (${pixelSize}) 必须 >= 1`);
+    }
+
+    this.pixelSize = pixelSize;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_pixelSize;
+uniform vec2 u_texelSize;
+varying vec2 v_texCoord;
+void main() {
+  vec2 g = u_pixelSize * u_texelSize;
+  vec2 q = floor(v_texCoord / g) * g + g * 0.5;
+  gl_FragColor = texture2D(u_texture, q);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uPixelSize = gl.getUniformLocation(program, 'u_pixelSize');
+    if (uPixelSize) gl.uniform1f(uPixelSize, this.pixelSize);
+  }
+}
