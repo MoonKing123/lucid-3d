@@ -44,6 +44,9 @@ export class MockNetwork {
   send(msg: NetworkMessage): void {
     if (!this._connected) return;
     this._net.send(msg.type, msg);
+    // 自回环：模拟服务器将消息广播回发送方（真实网络语义）
+    // br-12p 用单实例身兼发送端+接收端，引擎层 send() 不回环自身，需在此补回
+    (this._net as any)._deliver(msg.type, msg);
   }
 
   on<K extends MessageType>(
