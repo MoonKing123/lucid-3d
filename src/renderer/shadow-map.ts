@@ -12,12 +12,18 @@ import { RenderTarget } from './render-target';
 export interface ShadowMapOptions {
   /** 阴影贴图分辨率（正方形边长），默认 1024 */
   resolution?: number;
+  /** 阴影贴图宽度（与 height 同时使用时覆盖 resolution） */
+  width?: number;
+  /** 阴影贴图高度（与 width 同时使用时覆盖 resolution） */
+  height?: number;
   /** 深度偏移量，减少 shadow acne，默认 0.005 */
   bias?: number;
   /** 阴影相机近平面，默认 0.1 */
   near?: number;
   /** 阴影相机远平面，默认 100 */
   far?: number;
+  /** PCF 软阴影 kernel 大小：0 = 关闭(硬阴影), 1 = 3x3, 2 = 5x5。默认 0 */
+  softness?: 0 | 1 | 2;
 }
 
 export class ShadowMap {
@@ -25,6 +31,7 @@ export class ShadowMap {
   readonly bias: number;
   readonly near: number;
   readonly far: number;
+  readonly softness: 0 | 1 | 2;
   readonly renderTarget: RenderTarget;
 
   /** 光源视图矩阵 */
@@ -35,15 +42,35 @@ export class ShadowMap {
   lightVPMatrix: Mat4 | null = null;
 
   constructor(options?: ShadowMapOptions) {
-    this.resolution = options?.resolution ?? 1024;
+    const res = options?.resolution ?? 1024;
+    const w = options?.width ?? res;
+    const h = options?.height ?? res;
+    this.resolution = res;
     this.bias = options?.bias ?? 0.005;
     this.near = options?.near ?? 0.1;
     this.far = options?.far ?? 100;
+    const s = options?.softness ?? 0;
+    if (s !== 0 && s !== 1 && s !== 2) {
+      throw new Error(`ShadowMap: softness 必须为 0、1 或 2，收到 ${s}`);
+    }
+    this.softness = s;
     this.renderTarget = new RenderTarget({
-      width: this.resolution,
-      height: this.resolution,
+      width: w,
+      height: h,
       depthBuffer: true,
     });
+  }
+
+  /** 返回片元着色器声明代码（根据 softness 决定是否含 u_shadowMapSize） */
+  getFragmentParsCode(): string {
+    if (this.softness === 0) return SHADOW_FRAGMENT_PARS;
+    return `${SHADOW_FRAGMENT_PARS}\nuniform vec2 u_shadowMapSize;`;
+  }
+
+  /** 返回片元着色器阴影计算代码（softness=0 硬阴影，1=3x3 PCF，2=5x5 PCF） */
+  getFragmentCode(): string {
+    if (this.softness === 0) return SHADOW_FRAGMENT_CODE;
+    return this.softness === 1 ? PCF_3X3_FRAGMENT_CODE : PCF_5X5_FRAGMENT_CODE;
   }
 
   /**
@@ -140,4 +167,60 @@ vec2 shadowUV = shadowNDC.xy * 0.5 + 0.5;
 float shadowDepth = texture2D(u_shadowMap, shadowUV).r;
 float bias = u_shadowBias;
 float shadow = (shadowNDC.z * 0.5 + 0.5 - bias > shadowDepth) ? 0.5 : 1.0;
+`.trim();
+
+/** 3x3 PCF 展开式，9 次采样（WebGL 1.0 兼容，无 for 循环） */
+export const PCF_3X3_FRAGMENT_CODE = `
+vec3 shadowNDC = v_shadowCoord.xyz / v_shadowCoord.w;
+vec2 shadowUV = shadowNDC.xy * 0.5 + 0.5;
+float bias = u_shadowBias;
+float depth = shadowNDC.z * 0.5 + 0.5 - bias;
+vec2 texelSize = 1.0 / u_shadowMapSize;
+float shadow = 0.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow /= 9.0;
+`.trim();
+
+/** 5x5 PCF 展开式，25 次采样（WebGL 1.0 兼容，无 for 循环） */
+export const PCF_5X5_FRAGMENT_CODE = `
+vec3 shadowNDC = v_shadowCoord.xyz / v_shadowCoord.w;
+vec2 shadowUV = shadowNDC.xy * 0.5 + 0.5;
+float bias = u_shadowBias;
+float depth = shadowNDC.z * 0.5 + 0.5 - bias;
+vec2 texelSize = 1.0 / u_shadowMapSize;
+float shadow = 0.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-2.0, -2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0, -2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0, -2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0, -2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 2.0, -2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-2.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 2.0, -1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-2.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 2.0,  0.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-2.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 2.0,  1.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-2.0,  2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2(-1.0,  2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 0.0,  2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 1.0,  2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow += (depth > texture2D(u_shadowMap, shadowUV + vec2( 2.0,  2.0) * texelSize).r) ? 0.5 : 1.0;
+shadow /= 25.0;
 `.trim();
