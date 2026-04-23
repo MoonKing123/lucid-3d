@@ -1398,3 +1398,67 @@ void main() {
   }
 }
 
+/* ── WhiteBalancePass ── */
+
+/** 色温白平衡后处理：补偿光源色温偏差，营造时段/天气氛围 */
+export class WhiteBalancePass implements EffectPass {
+  readonly name = 'whitebalance';
+  enabled = true;
+  /** 色温 Kelvin。默认 6500（中性）。范围 [1000, 20000] */
+  temperature: number;
+  /** 色调。负值偏绿/洋红，默认 0。范围 [-1, 1] */
+  tint: number;
+
+  constructor(opts: { temperature?: number; tint?: number } = {}) {
+    this.temperature = opts.temperature ?? 6500;
+    this.tint = opts.tint ?? 0;
+    if (!isFinite(this.temperature) || this.temperature < 1000 || this.temperature > 20000) {
+      throw new Error(`WhiteBalancePass: temperature must be in [1000, 20000], got ${this.temperature}`);
+    }
+    if (!isFinite(this.tint) || this.tint < -1 || this.tint > 1) {
+      throw new Error(`WhiteBalancePass: tint must be in [-1, 1], got ${this.tint}`);
+    }
+  }
+
+  private computeRGBMultiplier(): [number, number, number] {
+    const t = this.temperature / 100;
+    let r: number, g: number, b: number;
+    if (t <= 66) {
+      r = 1.0;
+      g = Math.max(0, Math.min(1, (99.4708025861 * Math.log(t) - 161.1195681661) / 255));
+      b = t <= 19 ? 0 : Math.max(0, Math.min(1, (138.5177312231 * Math.log(t - 10) - 305.0447927307) / 255));
+    } else {
+      r = Math.max(0, Math.min(1, (329.698727446 * Math.pow(t - 60, -0.1332047592)) / 255));
+      g = Math.max(0, Math.min(1, (288.1221695283 * Math.pow(t - 60, -0.0755148492)) / 255));
+      b = 1.0;
+    }
+    return [r, g, b];
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec3 u_balanceMul;
+uniform float u_tint;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 balanced = color.rgb * u_balanceMul;
+  balanced.g += u_tint * 0.1;
+  balanced.r -= u_tint * 0.05;
+  balanced.b -= u_tint * 0.05;
+  gl_FragColor = vec4(clamp(balanced, 0.0, 1.0), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const [r, g, b] = this.computeRGBMultiplier();
+    const mulLoc = gl.getUniformLocation(program, 'u_balanceMul');
+    if (mulLoc) gl.uniform3f(mulLoc, r, g, b);
+    const tintLoc = gl.getUniformLocation(program, 'u_tint');
+    if (tintLoc) gl.uniform1f(tintLoc, this.tint);
+  }
+}
+
