@@ -1243,3 +1243,80 @@ void main() {
     if (uTime) gl.uniform1f(uTime, this.time);
   }
 }
+
+/* ── LensDistortionOptions ── */
+
+export interface LensDistortionOptions {
+  /** 畸变强度 [-1, 1]，正值=桶形(barrel)，负值=枕形(pincushion)，0=无畸变。默认 0.3 */
+  strength?: number;
+  /** 高阶畸变系数 [-1, 1]，控制边缘畸变曲率。默认 0 */
+  k2?: number;
+  /** 色差偏移 [0, 0.05]，RGB 通道径向偏移模拟色散。默认 0 = 无色差 */
+  chromaticAberration?: number;
+}
+
+/** 镜头畸变后处理：基于 r^2 + k2*r^4 径向畸变模型实现桶形/枕形畸变，支持色差模拟 */
+export class LensDistortionPass implements EffectPass {
+  readonly name = 'lensDistortion';
+  enabled = true;
+  strength: number;
+  k2: number;
+  chromaticAberration: number;
+
+  constructor(options?: LensDistortionOptions) {
+    const strength = options?.strength ?? 0.3;
+    const k2 = options?.k2 ?? 0;
+    const chromaticAberration = options?.chromaticAberration ?? 0;
+
+    if (strength < -1 || strength > 1) {
+      throw new Error(`LensDistortionPass: strength (${strength}) 必须在 [-1, 1] 范围内`);
+    }
+    if (k2 < -1 || k2 > 1) {
+      throw new Error(`LensDistortionPass: k2 (${k2}) 必须在 [-1, 1] 范围内`);
+    }
+    if (chromaticAberration < 0 || chromaticAberration > 0.05) {
+      throw new Error(`LensDistortionPass: chromaticAberration (${chromaticAberration}) 必须在 [0, 0.05] 范围内`);
+    }
+
+    this.strength = strength;
+    this.k2 = k2;
+    this.chromaticAberration = chromaticAberration;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_strength;
+uniform float u_k2;
+uniform float u_chromaticAberration;
+varying vec2 v_texCoord;
+void main() {
+  vec2 center = vec2(0.5, 0.5);
+  vec2 d = v_texCoord - center;
+  float r2 = dot(d, d);
+  float distortion = 1.0 + u_strength * r2 + u_k2 * r2 * r2;
+  vec2 distorted = center + d * distortion;
+  float r = texture2D(u_texture, center + d * (distortion + u_chromaticAberration)).r;
+  float g = texture2D(u_texture, distorted).g;
+  float b = texture2D(u_texture, center + d * (distortion - u_chromaticAberration)).b;
+  float a = texture2D(u_texture, distorted).a;
+  if (distorted.x < 0.0 || distorted.x > 1.0 || distorted.y < 0.0 || distorted.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+  } else {
+    gl_FragColor = vec4(r, g, b, a);
+  }
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uStrength = gl.getUniformLocation(program, 'u_strength');
+    if (uStrength) gl.uniform1f(uStrength, this.strength);
+    const uK2 = gl.getUniformLocation(program, 'u_k2');
+    if (uK2) gl.uniform1f(uK2, this.k2);
+    const uChromaticAberration = gl.getUniformLocation(program, 'u_chromaticAberration');
+    if (uChromaticAberration) gl.uniform1f(uChromaticAberration, this.chromaticAberration);
+  }
+}
+
