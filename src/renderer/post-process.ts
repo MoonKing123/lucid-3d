@@ -1,8 +1,10 @@
 /**
  * PostProcessor — 后处理管线。
- * 基于 ping-pong FBO 实现多 pass 效果链，内置灰度、模糊、泛光三种效果。
+ * 基于 ping-pong FBO 实现多 pass 效果链，内置灰度、模糊、泛光、色调映射四种效果。
  * @see test/unit/renderer/post-process.test.ts
  */
+
+import { RenderTarget } from './render-target';
 
 /* ── EffectPass 接口 ── */
 
@@ -280,6 +282,10 @@ void main() {
   setUniforms(_gl: WebGLRenderingContext, _program: WebGLProgram): void {
     // 灰度化无额外 uniform
   }
+
+  apply(_gl: WebGLRenderingContext, _input: WebGLTexture, _output: RenderTarget | null): void {
+    // 由 PostProcessor.render 驱动，此方法保留供外部直接调用
+  }
 }
 
 /** 高斯模糊效果：5-tap 高斯核双向采样 */
@@ -334,9 +340,17 @@ export class BloomPass implements EffectPass {
   /** 泛光强度，默认 1.0 */
   intensity: number;
 
-  constructor(threshold = 0.8, intensity = 1.0) {
-    this.threshold = threshold;
-    this.intensity = intensity;
+  constructor(
+    thresholdOrOpts: number | { threshold?: number; intensity?: number } = 0.8,
+    intensity = 1.0,
+  ) {
+    if (typeof thresholdOrOpts === 'object') {
+      this.threshold = thresholdOrOpts.threshold ?? 0.8;
+      this.intensity = thresholdOrOpts.intensity ?? 1.0;
+    } else {
+      this.threshold = thresholdOrOpts;
+      this.intensity = intensity;
+    }
   }
 
   getFragmentShader(): string {
@@ -370,6 +384,80 @@ void main() {
     if (uThreshold) gl.uniform1f(uThreshold, this.threshold);
     const uIntensity = gl.getUniformLocation(program, 'u_intensity');
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+
+  apply(_gl: WebGLRenderingContext, _input: WebGLTexture, _output: RenderTarget | null): void {
+    // 由 PostProcessor.render 驱动，此方法保留供外部直接调用
+  }
+}
+
+/* ── TonemapPass ── */
+
+export type TonemapMode = 'aces' | 'reinhard';
+
+export interface TonemapOptions {
+  /** 色调映射算法，默认 'aces' */
+  mode?: TonemapMode;
+  /** 曝光增益，在 tonemap 前乘到颜色上，默认 1.0 */
+  exposure?: number;
+}
+
+/** ACES Filmic Tonemapping（Narkowicz 2015 简化版）+ Reinhard 双模式色调映射后处理 */
+export class TonemapPass implements EffectPass {
+  readonly name = 'tonemap';
+  enabled = true;
+  readonly mode: TonemapMode;
+  exposure: number;
+
+  constructor(opts?: TonemapOptions) {
+    this.mode = opts?.mode ?? 'aces';
+    this.exposure = opts?.exposure ?? 1.0;
+  }
+
+  getFragmentShader(): string {
+    if (this.mode === 'aces') {
+      return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_exposure;
+varying vec2 v_texCoord;
+vec3 aces(vec3 x) {
+  const float a = 2.51;
+  const float b = 0.03;
+  const float c = 2.43;
+  const float d = 0.59;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+void main() {
+  vec4 tex = texture2D(u_texture, v_texCoord);
+  vec3 color = tex.rgb * u_exposure;
+  gl_FragColor = vec4(aces(color), tex.a);
+}
+`.trim();
+    }
+    // reinhard
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_exposure;
+varying vec2 v_texCoord;
+void main() {
+  vec4 tex = texture2D(u_texture, v_texCoord);
+  vec3 color = tex.rgb * u_exposure;
+  color = color / (color + vec3(1.0));
+  gl_FragColor = vec4(color, tex.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uExposure = gl.getUniformLocation(program, 'u_exposure');
+    if (uExposure) gl.uniform1f(uExposure, this.exposure);
+  }
+
+  apply(_gl: WebGLRenderingContext, _input: WebGLTexture, _output: RenderTarget | null): void {
+    // 由 PostProcessor.render 驱动，此方法保留供外部直接调用
   }
 }
 
