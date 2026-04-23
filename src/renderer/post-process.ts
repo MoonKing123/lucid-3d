@@ -1320,3 +1320,43 @@ void main() {
   }
 }
 
+/* ── GammaPass ── */
+
+/** sRGB gamma 校正后处理：线性空间转显示器空间（pre-display encoding）*/
+export class GammaPass implements EffectPass {
+  readonly name = 'gamma';
+  enabled = true;
+  /** Gamma 值。默认 2.2（sRGB 标准）。范围 [0.1, 5.0] */
+  gamma: number;
+
+  constructor(gammaOrOpts: number | { gamma?: number } = 2.2) {
+    if (typeof gammaOrOpts === 'object') {
+      this.gamma = gammaOrOpts.gamma ?? 2.2;
+    } else {
+      this.gamma = gammaOrOpts;
+    }
+    if (!isFinite(this.gamma) || this.gamma < 0.1 || this.gamma > 5.0) {
+      throw new Error(`GammaPass: gamma must be in [0.1, 5.0], got ${this.gamma}`);
+    }
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_invGamma;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 corrected = pow(max(color.rgb, vec3(0.0)), vec3(u_invGamma));
+  gl_FragColor = vec4(corrected, color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const loc = gl.getUniformLocation(program, 'u_invGamma');
+    if (loc) gl.uniform1f(loc, 1.0 / this.gamma);
+  }
+}
+
