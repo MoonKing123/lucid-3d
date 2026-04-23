@@ -67,6 +67,11 @@ interface PhongLocations {
   uEmissive: WebGLUniformLocation | null;
   uEmissiveMap: WebGLUniformLocation | null;
   uHasEmissiveMap: WebGLUniformLocation | null;
+  // 法线贴图
+  aTangent: number;
+  uNormalMap: WebGLUniformLocation | null;
+  uHasNormalMap: WebGLUniformLocation | null;
+  uNormalScale: WebGLUniformLocation | null;
   // 高光贴图
   uSpecularMap: WebGLUniformLocation | null;
   uHasSpecularMap: WebGLUniformLocation | null;
@@ -113,6 +118,7 @@ interface UploadedGeometry {
   colorBuffer: WebGLBuffer;
   uvBuffer: WebGLBuffer | null;
   normalBuffer: WebGLBuffer | null;
+  tangentBuffer: WebGLBuffer | null;
   indexBuffer: WebGLBuffer | null;
   indexCount: number;
   vertexCount: number;
@@ -685,6 +691,10 @@ export class WebGLRenderer {
         uEmissive:          gl.getUniformLocation(program, 'u_emissive'),
         uEmissiveMap:       gl.getUniformLocation(program, 'u_emissiveMap'),
         uHasEmissiveMap:    gl.getUniformLocation(program, 'u_hasEmissiveMap'),
+        aTangent:           gl.getAttribLocation(program, 'a_tangent'),
+        uNormalMap:         gl.getUniformLocation(program, 'u_normalMap'),
+        uHasNormalMap:      gl.getUniformLocation(program, 'u_hasNormalMap'),
+        uNormalScale:       gl.getUniformLocation(program, 'u_normalScale'),
         uSpecularMap:       gl.getUniformLocation(program, 'u_specularMap'),
         uHasSpecularMap:    gl.getUniformLocation(program, 'u_hasSpecularMap'),
         uNumDirLights:      gl.getUniformLocation(program, 'u_numDirLights'),
@@ -755,6 +765,15 @@ export class WebGLRenderer {
       gl.bufferData(gl.ARRAY_BUFFER, geometry.normals, gl.STATIC_DRAW);
     }
 
+    // Tangent buffer（可选，用于法线贴图 TBN 矩阵）
+    let tangentBuffer: WebGLBuffer | null = null;
+    if (geometry.tangents) {
+      tangentBuffer = gl.createBuffer();
+      if (!tangentBuffer) throw new Error('Failed to create tangent buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, tangentBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.tangents, gl.STATIC_DRAW);
+    }
+
     // Index buffer (optional)
     let indexBuffer: WebGLBuffer | null = null;
     let indexCount = 0;
@@ -790,6 +809,7 @@ export class WebGLRenderer {
       colorBuffer,
       uvBuffer,
       normalBuffer,
+      tangentBuffer,
       indexBuffer,
       indexCount,
       vertexCount,
@@ -1049,6 +1069,30 @@ export class WebGLRenderer {
         if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 1.0);
       } else {
         if (phong.uHasEmissiveMap) gl.uniform1f(phong.uHasEmissiveMap, 0.0);
+      }
+
+      // 法线贴图
+      if (mat.normalMap != null) {
+        const webglTex = this._getWebGLTexture(mat.normalMap);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, webglTex);
+        if (phong.uNormalMap)    gl.uniform1i(phong.uNormalMap, 2);
+        if (phong.uHasNormalMap) gl.uniform1f(phong.uHasNormalMap, 1.0);
+        if (phong.uNormalScale)  gl.uniform1f(phong.uNormalScale, mat.normalScale);
+        // 绑定切线 attribute
+        if (phong.aTangent >= 0 && uploaded.tangentBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.tangentBuffer);
+          gl.enableVertexAttribArray(phong.aTangent);
+          gl.vertexAttribPointer(phong.aTangent, 4, gl.FLOAT, false, 0, 0);
+        }
+        // 绑定 UV attribute（TBN 采样需要 UV）
+        if (compiled.aUv >= 0 && uploaded.uvBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+          gl.enableVertexAttribArray(compiled.aUv);
+          gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+        }
+      } else {
+        if (phong.uHasNormalMap) gl.uniform1f(phong.uHasNormalMap, 0.0);
       }
 
       // 高光贴图
