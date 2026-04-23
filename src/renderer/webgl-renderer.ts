@@ -17,6 +17,7 @@ import { Mesh } from './mesh';
 import { SkinnedMesh } from './skinned-mesh';
 import { Geometry } from './geometry';
 import { Material, Side, BlendMode } from './material';
+import { ShaderMaterial } from './shader-material';
 import { TextureMaterial } from './texture-material';
 import { Texture, TextureWrap, TextureFilter } from './texture';
 import { PhongMaterial } from './phong-material';
@@ -882,8 +883,8 @@ export class WebGLRenderer {
         break;
     }
 
-    // BitmapTextMaterial 不应用雾效
-    const applyFog = fog !== null && !(mesh.material instanceof BitmapTextMaterial);
+    // BitmapTextMaterial 和 ShaderMaterial 不注入雾效（ShaderMaterial 自行处理）
+    const applyFog = fog !== null && !(mesh.material instanceof BitmapTextMaterial) && !(mesh.material instanceof ShaderMaterial);
     const compiled  = this._getProgram(mesh.material, applyFog);
     const uploaded  = this._getGeometry(mesh.geometry);
 
@@ -1065,6 +1066,56 @@ export class WebGLRenderer {
         }
       } else {
         if (phong.uHasSpecularMap) gl.uniform1f(phong.uHasSpecularMap, 0.0);
+      }
+    }
+
+    // ShaderMaterial: 绑定 UV 属性 + 自定义 uniforms + 内置 uniforms
+    if (mesh.material instanceof ShaderMaterial) {
+      if (compiled.aUv >= 0 && uploaded.uvBuffer !== null) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.uvBuffer);
+        gl.enableVertexAttribArray(compiled.aUv);
+        gl.vertexAttribPointer(compiled.aUv, 2, gl.FLOAT, false, 0, 0);
+      }
+
+      // 内置 uniforms（可选 — shader 声明了才绑定）
+      const uModelMatrix = gl.getUniformLocation(compiled.program, 'u_modelMatrix');
+      gl.uniformMatrix4fv(uModelMatrix, false, mesh.worldMatrix);
+
+      // 自定义 uniforms
+      let textureUnit = 0;
+      for (const [name, def] of Object.entries(mesh.material.uniforms)) {
+        const loc = gl.getUniformLocation(compiled.program, name);
+        switch (def.type) {
+          case 'float':
+            gl.uniform1f(loc, def.value as number);
+            break;
+          case 'int':
+            gl.uniform1i(loc, def.value as number);
+            break;
+          case 'vec2':
+            gl.uniform2fv(loc, def.value as number[]);
+            break;
+          case 'vec3':
+            gl.uniform3fv(loc, def.value as number[]);
+            break;
+          case 'vec4':
+            gl.uniform4fv(loc, def.value as number[]);
+            break;
+          case 'mat3':
+            gl.uniformMatrix3fv(loc, false, def.value as Float32Array);
+            break;
+          case 'mat4':
+            gl.uniformMatrix4fv(loc, false, def.value as Float32Array);
+            break;
+          case 'sampler2D': {
+            const webglTex = this._getWebGLTexture(def.value as Texture);
+            gl.activeTexture(gl.TEXTURE0 + textureUnit);
+            gl.bindTexture(gl.TEXTURE_2D, webglTex);
+            gl.uniform1i(loc, textureUnit);
+            textureUnit++;
+            break;
+          }
+        }
       }
     }
 
