@@ -1360,3 +1360,41 @@ void main() {
   }
 }
 
+/* ── ExposurePass ── */
+
+/** EV stops 曝光补偿后处理：+1 stop = ×2 亮度，-1 stop = ÷2 亮度，CPU 侧预计算 pow(2, ev) */
+export class ExposurePass implements EffectPass {
+  readonly name = 'exposure';
+  enabled = true;
+  ev: number;
+
+  constructor(evOrOpts: number | { ev?: number } = 0) {
+    if (typeof evOrOpts === 'object') {
+      this.ev = evOrOpts.ev ?? 0;
+    } else {
+      this.ev = evOrOpts;
+    }
+    if (!isFinite(this.ev) || this.ev < -5 || this.ev > 5) {
+      throw new Error(`ExposurePass: ev must be in [-5, 5], got ${this.ev}`);
+    }
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_exposure;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  gl_FragColor = vec4(color.rgb * u_exposure, color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const loc = gl.getUniformLocation(program, 'u_exposure');
+    if (loc) gl.uniform1f(loc, Math.pow(2.0, this.ev));
+  }
+}
+
