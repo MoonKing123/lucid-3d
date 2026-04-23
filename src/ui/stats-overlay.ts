@@ -5,12 +5,9 @@
  * AI Agent 调试性能时不需要每次手写 UI 代码。
  *
  * @see test/unit/ui/stats-overlay.test.ts
- *
- * STUB — Phase 44 Architect 预写
  */
 
-export const __STUB__ = true;
-
+import { UIElement } from './ui-element';
 import type { UICanvas } from './ui-canvas';
 
 export interface RenderInfoSnapshot {
@@ -29,27 +26,68 @@ export interface StatsOverlayOptions {
 }
 
 export class StatsOverlay {
-  constructor(_canvas: UICanvas, _options?: StatsOverlayOptions) {
-    throw new Error('Not implemented');
+  private _canvas: UICanvas;
+  private _elements: UIElement[];
+  private _fps: number = 0;
+  private _drawCalls: number = 0;
+  private _triangles: number = 0;
+  private _initialized: boolean = false;
+  private _elapsed: number = 0;
+  private _updateInterval: number;
+
+  constructor(canvas: UICanvas, options?: StatsOverlayOptions) {
+    this._canvas = canvas;
+    this._updateInterval = options?.updateInterval ?? 0.5;
+
+    const px = options?.position?.x ?? 10;
+    const py = options?.position?.y ?? 10;
+    const w = options?.width ?? 200;
+    const h = options?.height ?? 80;
+
+    const bg = new UIElement({ x: px, y: py, width: w, height: h, name: 'stats-overlay' });
+    canvas.add(bg);
+    this._elements = [bg];
   }
 
-  update(_dt: number, _renderInfo?: RenderInfoSnapshot): void {
-    throw new Error('Not implemented');
+  update(dt: number, renderInfo?: RenderInfoSnapshot): void {
+    if (dt > 0) {
+      const instant = 1 / dt;
+      if (!this._initialized) {
+        this._fps = instant;
+        this._initialized = true;
+      } else {
+        // EMA α=0.1 平滑 FPS
+        this._fps = 0.1 * instant + 0.9 * this._fps;
+      }
+    }
+
+    if (renderInfo) {
+      this._drawCalls = renderInfo.drawCalls;
+      this._triangles = renderInfo.triangles;
+    }
+
+    this._elapsed += dt;
+    if (this._updateInterval === 0 || this._elapsed >= this._updateInterval) {
+      this._elapsed = 0;
+    }
   }
 
   get fps(): number {
-    throw new Error('Not implemented');
+    return this._fps;
   }
 
   get drawCalls(): number {
-    throw new Error('Not implemented');
+    return this._drawCalls;
   }
 
   get triangles(): number {
-    throw new Error('Not implemented');
+    return this._triangles;
   }
 
   destroy(): void {
-    throw new Error('Not implemented');
+    for (const el of this._elements) {
+      this._canvas.remove(el);
+    }
+    this._elements = [];
   }
 }
