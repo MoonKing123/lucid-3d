@@ -8,6 +8,7 @@ import { Player } from './player';
 import { CameraController } from './camera-controller';
 import { createTerrain } from './terrain';
 import { EnemyManager } from './enemy-manager';
+import { CombatSystem } from './combat';
 import { HUD } from './hud';
 import type { BitmapFontData, BitmapCharData } from '../../../src/renderer/bitmap-font';
 
@@ -40,6 +41,7 @@ export class Game {
   private readonly _camCtrl:      CameraController;
   private readonly _simInput:     SimulatedInput;
   private readonly _enemyManager: EnemyManager;
+  private readonly _combat:       CombatSystem;
 
   frameCount = 0;
   private _drawCallCount = 0;
@@ -56,6 +58,7 @@ export class Game {
     this._camCtrl.setTarget(this._player.node);
 
     this._enemyManager = new EnemyManager(this._player.node);
+    this._combat = new CombatSystem(this._player.node, this._enemyManager.enemies);
 
     // 统计可渲染节点数（地形 mesh 子节点）
     terrain.traverse(n => { if (n !== terrain) this._drawCallCount++; });
@@ -110,7 +113,13 @@ export class Game {
           this._hud?.toggleEscMenu();
         } else if (e.key === 'i' || e.key === 'I') {
           this._hud?.toggleInventory();
-        } else if (e.key >= '1' && e.key <= '4') {
+        } else if (e.key === '1') {
+          this._combat.switchWeapon('sword');
+          this._hud?.selectSkill(0);
+        } else if (e.key === '2') {
+          this._combat.switchWeapon('bow');
+          this._hud?.selectSkill(1);
+        } else if (e.key === '3' || e.key === '4') {
           const slot = parseInt(e.key) - 1;
           this._hud?.selectSkill(slot);
         }
@@ -138,7 +147,21 @@ export class Game {
       return;
     }
 
+    // 武器切换（headless 模式通过 simulateKey 驱动）
+    if (this._simInput.isKeyDown('1')) this._combat.switchWeapon('sword');
+    if (this._simInput.isKeyDown('2')) this._combat.switchWeapon('bow');
+
     this._player.update(dt, this._simInput, this._camCtrl.yaw);
+
+    // 攻击指令：按 F 键时同步触发战斗系统
+    if (this._simInput.isKeyDown('f') || this._simInput.isKeyDown('F')) {
+      const yaw  = this._camCtrl.yaw;
+      const fwdX = -Math.sin(yaw);
+      const fwdZ =  Math.cos(yaw);
+      this._combat.attack(this._player.position, vec3(fwdX, 0, fwdZ));
+    }
+
+    this._combat.update(dt);
     this._world.step();
     this._camCtrl.update(dt);
     this._enemyManager.update(1 / 60);
@@ -165,4 +188,5 @@ export class Game {
   get hud()           { return this._hud; }
   get drawCallCount() { return this._drawCallCount; }
   get enemyManager()  { return this._enemyManager; }
+  get combat()        { return this._combat; }
 }
