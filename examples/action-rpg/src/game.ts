@@ -8,6 +8,8 @@ import { Player } from './player';
 import { CameraController } from './camera-controller';
 import { createTerrain } from './terrain';
 import { EnemyManager } from './enemy-manager';
+import { HUD } from './hud';
+import type { BitmapFontData, BitmapCharData } from '../../../src/renderer/bitmap-font';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -18,10 +20,20 @@ class SimulatedInput {
   isKeyDown(key: string): boolean { return this._keys.has(key); }
 }
 
+/** 生成最小可用的 BitmapFontData（ASCII 子集，用于 HUD demo） */
+function generateMinimalFont(): BitmapFontData {
+  const chars = new Map<number, BitmapCharData>();
+  for (let i = 32; i <= 126; i++) {
+    chars.set(i, { id: i, x: i * 8, y: 0, width: 7, height: 12, xoffset: 0, yoffset: 2, xadvance: 8 });
+  }
+  return { lineHeight: 16, base: 12, scaleW: 1024, scaleH: 16, chars };
+}
+
 export class Game {
   private _scene:    Scene | null        = null;
   private _renderer: WebGLRenderer | null = null;
   private _loop:     GameLoop | null      = null;
+  private _hud:      HUD | null           = null;
 
   private readonly _world:        CollisionWorld;
   private readonly _player:       Player;
@@ -74,8 +86,35 @@ export class Game {
       this._renderer = new WebGLRenderer(canvas);
       this._camCtrl.camera.aspect = canvas.width / canvas.height;
 
-      // 瞬间定位相机（避免第一帧飞跃）
       this._camCtrl.snap();
+
+      // ── HUD 初始化 ──
+      this._hud = new HUD({
+        width: canvas.width,
+        height: canvas.height,
+        font: generateMinimalFont(),
+        onQuit: () => this.stop(),
+        onRespawn: () => this._player.respawn(),
+        onQualityChange: (_quality) => {
+          // TODO: 切换 PostProcessor pass — blocked on PostProcessor pass-toggle API
+        },
+        onVolumeChange: (_volume) => {
+          // TODO: AudioManager.masterVolume — blocked on AudioManager headless mode
+        },
+      });
+      this._hud.connectPlayer(this._player);
+
+      // ── 键盘事件 ──
+      canvas.ownerDocument?.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          this._hud?.toggleEscMenu();
+        } else if (e.key === 'i' || e.key === 'I') {
+          this._hud?.toggleInventory();
+        } else if (e.key >= '1' && e.key <= '4') {
+          const slot = parseInt(e.key) - 1;
+          this._hud?.selectSkill(slot);
+        }
+      });
 
       this._loop = new GameLoop();
       this._loop.onUpdate = (dt) => this.update(dt);
@@ -85,7 +124,6 @@ export class Game {
         }
       };
     } else {
-      // headless：让玩家从地面起步，瞬间定位相机
       this._camCtrl.snap();
     }
   }
@@ -94,10 +132,17 @@ export class Game {
   stop():  void { this._loop?.stop();  }
 
   update(dt: number): void {
+    // 暂停时跳过游戏逻辑更新
+    if (this._hud?.isPaused) {
+      this.frameCount++;
+      return;
+    }
+
     this._player.update(dt, this._simInput, this._camCtrl.yaw);
     this._world.step();
     this._camCtrl.update(dt);
     this._enemyManager.update(1 / 60);
+    this._hud?.update(dt);
     this.frameCount++;
   }
 
@@ -117,6 +162,7 @@ export class Game {
   get followCamera()  { return this._camCtrl.camera; }
   get cameraCtrl()    { return this._camCtrl; }
   get world()         { return this._world; }
+  get hud()           { return this._hud; }
   get drawCallCount() { return this._drawCallCount; }
   get enemyManager()  { return this._enemyManager; }
 }
