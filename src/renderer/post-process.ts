@@ -5,6 +5,7 @@
  */
 
 import { RenderTarget } from './render-target';
+import { Texture } from './texture';
 
 /* ── EffectPass 接口 ── */
 
@@ -1653,6 +1654,114 @@ void main() {
     if (uLevels) gl.uniform1f(uLevels, this.levels);
     const uIntensity = gl.getUniformLocation(program, 'u_intensity');
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
+
+/* ── ColorLUTPass ── */
+
+export interface ColorLUTOptions {
+  /** LUT 纹理，必须是 512×512（64³）tiled atlas 格式 */
+  texture: Texture;
+  /** 混合强度 0..1。0 = 原图，1 = 完全应用 LUT。默认 1 */
+  intensity?: number;
+}
+
+/** 基于 Lookup Texture 的专业调色后处理：64³ LUT 展开为 512×512 tiled atlas（8×8 tiles） */
+export class ColorLUTPass implements EffectPass {
+  readonly name = 'colorLUT';
+  enabled = true;
+  texture: Texture;
+  intensity: number;
+
+  private _glTex: WebGLTexture | null = null;
+  private _glTexVersion = -1;
+
+  constructor(options: ColorLUTOptions) {
+    if (options.texture == null) {
+      throw new Error('ColorLUTPass: texture 不能为 null 或 undefined');
+    }
+    const intensity = options.intensity ?? 1;
+    if (!Number.isFinite(intensity) || intensity < 0 || intensity > 1) {
+      throw new Error(`ColorLUTPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+    this.texture = options.texture;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform sampler2D u_lut;
+uniform float u_intensity;
+
+vec3 sampleLUT(vec3 color) {
+  float blueIndex = color.b * 63.0;
+  float blueLow = floor(blueIndex);
+  float blueHigh = min(blueLow + 1.0, 63.0);
+  float blueLerp = blueIndex - blueLow;
+
+  vec2 quad;
+  quad.y = floor(blueLow / 8.0);
+  quad.x = blueLow - quad.y * 8.0;
+
+  vec2 texPosLow;
+  texPosLow.x = (quad.x * 64.0 + color.r * 63.0 + 0.5) / 512.0;
+  texPosLow.y = (quad.y * 64.0 + color.g * 63.0 + 0.5) / 512.0;
+
+  quad.y = floor(blueHigh / 8.0);
+  quad.x = blueHigh - quad.y * 8.0;
+
+  vec2 texPosHigh;
+  texPosHigh.x = (quad.x * 64.0 + color.r * 63.0 + 0.5) / 512.0;
+  texPosHigh.y = (quad.y * 64.0 + color.g * 63.0 + 0.5) / 512.0;
+
+  vec3 lowColor = texture2D(u_lut, texPosLow).rgb;
+  vec3 highColor = texture2D(u_lut, texPosHigh).rgb;
+  return mix(lowColor, highColor, blueLerp);
+}
+
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 graded = sampleLUT(color.rgb);
+  gl_FragColor = vec4(mix(color.rgb, graded, u_intensity), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    // 上传/更新 LUT 纹理到 GPU（按 version 缓存）
+    if (!this._glTex || this._glTexVersion !== this.texture.version) {
+      if (this._glTex) gl.deleteTexture(this._glTex);
+      const tex = gl.createTexture();
+      if (tex) {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(
+          gl.TEXTURE_2D, 0, gl.RGBA,
+          this.texture.width, this.texture.height, 0,
+          gl.RGBA, gl.UNSIGNED_BYTE, this.texture.data,
+        );
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      }
+      this._glTex = tex;
+      this._glTexVersion = this.texture.version;
+    }
+
+    // 绑定 LUT 纹理到 texture unit 1（u_texture 已由 PostProcessor 绑定到 unit 0）
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this._glTex);
+    const uLut = gl.getUniformLocation(program, 'u_lut');
+    if (uLut) gl.uniform1i(uLut, 1);
+
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+
+    gl.activeTexture(gl.TEXTURE0);
   }
 }
 
