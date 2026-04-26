@@ -1711,3 +1711,124 @@ void main() {
   }
 }
 
+/* ── DitherOptions ── */
+
+export type DitherMatrix = 'bayer4x4' | 'bayer8x8';
+
+export interface DitherOptions {
+  /** 抖动矩阵类型。bayer4x4 = 16 级阈值（粗），bayer8x8 = 64 级（细）。默认 'bayer4x4' */
+  matrix?: DitherMatrix;
+  /** 每通道量化等级数 [2, 16]，决定抖动后的最终色阶。默认 4 */
+  levels?: number;
+  /** 混合强度 0..1。默认 1 */
+  intensity?: number;
+}
+
+/** Bayer 矩阵有序抖动后处理：通过 4×4 或 8×8 Bayer 矩阵比较像素亮度与阈值，
+ *  把色阶压缩到 2-8 级同时保留视觉层次，适用于像素艺术 / Game Boy / 复古 8-bit 风格。
+ */
+export class DitherPass implements EffectPass {
+  readonly name = 'dither';
+  enabled = true;
+  matrix: DitherMatrix;
+  levels: number;
+  intensity: number;
+
+  constructor(options?: DitherOptions) {
+    const matrix = options?.matrix ?? 'bayer4x4';
+    const levels = options?.levels ?? 4;
+    const intensity = options?.intensity ?? 1;
+
+    if (matrix !== 'bayer4x4' && matrix !== 'bayer8x8') {
+      throw new Error(`DitherPass: matrix ("${matrix}") 必须是 'bayer4x4' 或 'bayer8x8'`);
+    }
+    if (!Number.isFinite(levels) || !Number.isInteger(levels) || levels < 2 || levels > 16) {
+      throw new Error(`DitherPass: levels (${levels}) 必须是 [2, 16] 范围内的整数`);
+    }
+    if (!Number.isFinite(intensity) || intensity < 0 || intensity > 1) {
+      throw new Error(`DitherPass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.matrix = matrix;
+    this.levels = levels;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    if (this.matrix === 'bayer4x4') {
+      return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_levels;
+uniform float u_intensity;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  float fx = mod(gl_FragCoord.x, 4.0);
+  float fy = mod(gl_FragCoord.y, 4.0);
+  vec4 r0 = vec4( 0.0,  8.0,  2.0, 10.0);
+  vec4 r1 = vec4(12.0,  4.0, 14.0,  6.0);
+  vec4 r2 = vec4( 3.0, 11.0,  1.0,  9.0);
+  vec4 r3 = vec4(15.0,  7.0, 13.0,  5.0);
+  vec4 row;
+  if      (fy < 1.0) row = r0;
+  else if (fy < 2.0) row = r1;
+  else if (fy < 3.0) row = r2;
+  else               row = r3;
+  float bval;
+  if      (fx < 1.0) bval = row.x;
+  else if (fx < 2.0) bval = row.y;
+  else if (fx < 3.0) bval = row.z;
+  else               bval = row.w;
+  float threshold = bval / 16.0 - 0.5;
+  vec3 dithered = floor(color.rgb * u_levels + threshold) / max(u_levels - 1.0, 1.0);
+  dithered = clamp(dithered, 0.0, 1.0);
+  gl_FragColor = vec4(mix(color.rgb, dithered, u_intensity), color.a);
+}
+`.trim();
+    }
+    // bayer8x8
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_levels;
+uniform float u_intensity;
+varying vec2 v_texCoord;
+float sel8(vec4 lo, vec4 hi, float x) {
+  if      (x < 1.0) return lo.x;
+  else if (x < 2.0) return lo.y;
+  else if (x < 3.0) return lo.z;
+  else if (x < 4.0) return lo.w;
+  else if (x < 5.0) return hi.x;
+  else if (x < 6.0) return hi.y;
+  else if (x < 7.0) return hi.z;
+  else               return hi.w;
+}
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  float fx = mod(gl_FragCoord.x, 8.0);
+  float fy = mod(gl_FragCoord.y, 8.0);
+  float bval;
+  if      (fy < 1.0) bval = sel8(vec4( 0.,32., 8.,40.), vec4( 2.,34.,10.,42.), fx);
+  else if (fy < 2.0) bval = sel8(vec4(48.,16.,56.,24.), vec4(50.,18.,58.,26.), fx);
+  else if (fy < 3.0) bval = sel8(vec4(12.,44., 4.,36.), vec4(14.,46., 6.,38.), fx);
+  else if (fy < 4.0) bval = sel8(vec4(60.,28.,52.,20.), vec4(62.,30.,54.,22.), fx);
+  else if (fy < 5.0) bval = sel8(vec4( 3.,35.,11.,43.), vec4( 1.,33., 9.,41.), fx);
+  else if (fy < 6.0) bval = sel8(vec4(51.,19.,59.,27.), vec4(49.,17.,57.,25.), fx);
+  else if (fy < 7.0) bval = sel8(vec4(15.,47., 7.,39.), vec4(13.,45., 5.,37.), fx);
+  else               bval = sel8(vec4(63.,31.,55.,23.), vec4(61.,29.,53.,21.), fx);
+  float threshold = bval / 64.0 - 0.5;
+  vec3 dithered = floor(color.rgb * u_levels + threshold) / max(u_levels - 1.0, 1.0);
+  dithered = clamp(dithered, 0.0, 1.0);
+  gl_FragColor = vec4(mix(color.rgb, dithered, u_intensity), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uLevels = gl.getUniformLocation(program, 'u_levels');
+    if (uLevels) gl.uniform1f(uLevels, this.levels);
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
