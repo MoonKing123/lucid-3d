@@ -1593,6 +1593,69 @@ void main() {
   }
 }
 
+/* ── PosterizeOptions ── */
+
+export interface PosterizeOptions {
+  /** 每通道量化等级数，整数 [2, 32]。默认 6 */
+  levels?: number;
+  /** 混合强度 [0, 1]。0=原图，1=完全量化。默认 1 */
+  intensity?: number;
+}
+
+/** 色阶量化后处理：按固定 levels 量化 RGB 通道，产生漫画/赛璐璐/复古风格 */
+export class PosterizePass implements EffectPass {
+  readonly name = 'posterize';
+  enabled = true;
+  levels: number;
+  intensity: number;
+
+  constructor(options?: PosterizeOptions) {
+    const levels = options?.levels ?? 6;
+    const intensity = options?.intensity ?? 1;
+
+    if (!Number.isFinite(levels)) {
+      throw new Error(`PosterizePass: levels (${levels}) 必须是有限整数`);
+    }
+    if (!Number.isInteger(levels)) {
+      throw new Error(`PosterizePass: levels (${levels}) 必须是整数`);
+    }
+    if (levels < 2 || levels > 32) {
+      throw new Error(`PosterizePass: levels (${levels}) 必须在 [2, 32] 范围内`);
+    }
+    if (!Number.isFinite(intensity)) {
+      throw new Error(`PosterizePass: intensity (${intensity}) 必须是有限数值`);
+    }
+    if (intensity < 0 || intensity > 1) {
+      throw new Error(`PosterizePass: intensity (${intensity}) 必须在 [0, 1] 范围内`);
+    }
+
+    this.levels = levels;
+    this.intensity = intensity;
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform float u_levels;
+uniform float u_intensity;
+void main() {
+  vec4 color = texture2D(u_texture, v_texCoord);
+  vec3 quantized = floor(color.rgb * u_levels) / max(u_levels - 1.0, 1.0);
+  gl_FragColor = vec4(mix(color.rgb, clamp(quantized, 0.0, 1.0), u_intensity), color.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uLevels = gl.getUniformLocation(program, 'u_levels');
+    if (uLevels) gl.uniform1f(uLevels, this.levels);
+    const uIntensity = gl.getUniformLocation(program, 'u_intensity');
+    if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
+  }
+}
+
 /* ── VibrancePass ── */
 
 export interface VibranceOptions {
