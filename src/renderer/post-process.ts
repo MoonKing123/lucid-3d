@@ -1697,6 +1697,92 @@ void main() {
   }
 }
 
+/* ── DOFPass ── */
+
+export interface DOFOptions {
+  /** 焦点距离（视图空间，单位米）— 处于此距离的物体最清晰。默认 5 */
+  focusDistance?: number;
+  /** 焦点范围 — 距 focusDistance 在此范围内仍清晰，超出开始模糊。默认 2，必须 > 0 */
+  focusRange?: number;
+  /** 最大模糊半径（屏幕像素）— CoC=1 处的采样半径。默认 4，范围 [0, 20] */
+  blurRadius?: number;
+  /** 相机近平面（用于 linearizeDepth）。默认 0.1 */
+  near?: number;
+  /** 相机远平面。默认 100，必须 > near */
+  far?: number;
+}
+
+export class DOFPass implements EffectPass {
+  readonly name = 'dof';
+  enabled = true;
+  readonly usesDepth = true;
+
+  focusDistance: number;
+  focusRange: number;
+  blurRadius: number;
+  near: number;
+  far: number;
+
+  constructor(opts: DOFOptions = {}) {
+    this.focusDistance = opts.focusDistance ?? 5;
+    this.focusRange = opts.focusRange ?? 2;
+    this.blurRadius = opts.blurRadius ?? 4;
+    this.near = opts.near ?? 0.1;
+    this.far = opts.far ?? 100;
+
+    if (!Number.isFinite(this.focusDistance)) throw new Error('DOFPass: focusDistance must be finite');
+    if (!(this.focusRange > 0)) throw new Error('DOFPass: focusRange must be > 0');
+    if (this.blurRadius < 0 || this.blurRadius > 20)
+      throw new Error('DOFPass: blurRadius must be in [0, 20]');
+    if (!(this.near > 0)) throw new Error('DOFPass: near must be > 0');
+    if (!(this.far > this.near)) throw new Error('DOFPass: far must be > near');
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec2 u_texelSize;
+uniform float u_focusDistance;
+uniform float u_focusRange;
+uniform float u_blurRadius;
+uniform float u_near;
+uniform float u_far;
+${LINEARIZE_DEPTH_GLSL}
+void main() {
+  float d = texture2D(u_depthTexture, v_texCoord).r;
+  float linearD = linearizeDepth(d, u_near, u_far);
+  float coc = clamp(abs(linearD - u_focusDistance) / u_focusRange, 0.0, 1.0);
+  float r = u_blurRadius * coc;
+  vec4 sum = vec4(0.0);
+  float w = 0.0;
+  for (int i = -1; i <= 1; i++) {
+    for (int j = -1; j <= 1; j++) {
+      vec2 off = vec2(float(i), float(j)) * u_texelSize * r;
+      sum += texture2D(u_texture, v_texCoord + off);
+      w += 1.0;
+    }
+  }
+  gl_FragColor = sum / w;
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const set = (name: string, v: number) => {
+      const loc = gl.getUniformLocation(program, name);
+      if (loc) gl.uniform1f(loc, v);
+    };
+    set('u_focusDistance', this.focusDistance);
+    set('u_focusRange', this.focusRange);
+    set('u_blurRadius', this.blurRadius);
+    set('u_near', this.near);
+    set('u_far', this.far);
+  }
+}
+
 /* ── ColorLUTPass ── */
 
 export interface ColorLUTOptions {
