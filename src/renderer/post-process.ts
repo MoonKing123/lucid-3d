@@ -7,6 +7,19 @@
 import { RenderTarget } from './render-target';
 import { Texture } from './texture';
 
+/* ── LINEARIZE_DEPTH_GLSL 辅助函数 ── */
+
+/**
+ * GLSL 函数：把 [0,1] 区间的非线性深度（从 depthTexture 采样得）转换为线性视图空间深度。
+ * 调用方：DOFPass / SSAOPass / MotionBlurPass 在 fragment shader 中 #include。
+ */
+export const LINEARIZE_DEPTH_GLSL = `
+float linearizeDepth(float d, float near, float far) {
+  float z = d * 2.0 - 1.0;
+  return (2.0 * near * far) / (far + near - z * (far - near));
+}
+`.trim();
+
 /* ── EffectPass 接口 ── */
 
 export interface EffectPass {
@@ -18,6 +31,8 @@ export interface EffectPass {
   getFragmentShader(): string;
   /** 设置 pass 特有的 uniform（在 render 前由 PostProcessor 调用） */
   setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void;
+  /** 可选：声明此 pass 需要 u_depthTexture（默认 false） */
+  readonly usesDepth?: boolean;
 }
 
 /* ── 全屏四边形顶点着色器 ── */
@@ -51,6 +66,8 @@ export class PostProcessor {
   private _textures: (WebGLTexture | null)[] = [null, null];
   // 全屏四边形 VBO
   private _vbo: WebGLBuffer | null = null;
+  // 当前帧的深度纹理（由外部通过 setDepthTexture 注入）
+  private _depthTexture: WebGLTexture | null = null;
 
   get width(): number { return this._width; }
   get height(): number { return this._height; }
@@ -59,6 +76,15 @@ export class PostProcessor {
   addPass(pass: EffectPass): this {
     this.passes.push(pass);
     return this;
+  }
+
+  /**
+   * 设置当前帧场景渲染的深度纹理。
+   * 当 EffectPass.usesDepth === true 时，PostProcessor 会将此纹理绑定到 texture unit 1，
+   * 并在 program 上设置 uniform `u_depthTexture`。
+   */
+  setDepthTexture(tex: WebGLTexture | null): void {
+    this._depthTexture = tex;
   }
 
   /** 按名称移除 pass（不存在时静默，可链式调用） */
@@ -120,6 +146,9 @@ export class PostProcessor {
         gl.uniform2f(uTexelSize, 1.0 / this._width, 1.0 / this._height);
       }
 
+      // 若 pass 需要深度纹理，绑定到 unit 1
+      this._bindDepthForPass(gl, pass, prog);
+
       // 由 pass 设置自定义 uniform
       pass.setUniforms(gl, prog);
 
@@ -156,6 +185,17 @@ export class PostProcessor {
   }
 
   // ── 私有辅助 ──
+
+  /** 当 pass.usesDepth=true 且有深度纹理时，绑定到 unit 1 并设置 u_depthTexture uniform */
+  _bindDepthForPass(gl: WebGLRenderingContext, pass: EffectPass, prog: WebGLProgram): void {
+    if (pass.usesDepth && this._depthTexture) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this._depthTexture);
+      const loc = gl.getUniformLocation(prog, 'u_depthTexture');
+      if (loc) gl.uniform1i(loc, 1);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
 
   private _programCache = new Map<string, WebGLProgram>();
 
