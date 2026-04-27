@@ -2374,3 +2374,110 @@ void main() {
     set('u_far', this.far);
   }
 }
+
+/* ── GodRaysPass ── */
+
+export interface GodRaysOptions {
+  /** 光源屏幕坐标 (0..1, 0..1)。default [0.5, 0.5] */
+  lightScreenPos?: [number, number];
+  /** 采样密度（沿光线方向的步长系数）。default 1.0，must be > 0 */
+  density?: number;
+  /** 衰减系数，越大光线越短。default 0.95，must be in (0, 1] */
+  decay?: number;
+  /** 单步权重。default 0.4，must be > 0 */
+  weight?: number;
+  /** 总采样数。default 64，must be in [4, 128] */
+  samples?: number;
+  /** 最终亮度倍数。default 0.8，must be > 0 */
+  exposure?: number;
+}
+
+export class GodRaysPass implements EffectPass {
+  readonly name = 'godRays';
+  enabled = true;
+  readonly usesDepth = true;
+
+  lightScreenPos: [number, number];
+  density: number;
+  decay: number;
+  weight: number;
+  samples: number;
+  exposure: number;
+
+  constructor(opts?: GodRaysOptions) {
+    const lightScreenPos = opts?.lightScreenPos ?? [0.5, 0.5];
+    const density = opts?.density ?? 1.0;
+    const decay = opts?.decay ?? 0.95;
+    const weight = opts?.weight ?? 0.4;
+    const samples = opts?.samples ?? 64;
+    const exposure = opts?.exposure ?? 0.8;
+
+    if (!Array.isArray(lightScreenPos) || lightScreenPos.length !== 2)
+      throw new Error('GodRaysPass: lightScreenPos 必须是 2 元素数组');
+    if (!(density > 0))
+      throw new Error('GodRaysPass: density 必须 > 0');
+    if (!(decay > 0) || decay > 1)
+      throw new Error('GodRaysPass: decay 必须在 (0, 1] 范围内');
+    if (!(weight > 0))
+      throw new Error('GodRaysPass: weight 必须 > 0');
+    if (!Number.isInteger(samples))
+      throw new Error('GodRaysPass: samples 必须是整数');
+    if (samples < 4 || samples > 128)
+      throw new Error('GodRaysPass: samples 必须在 [4, 128] 范围内');
+    if (!(exposure > 0))
+      throw new Error('GodRaysPass: exposure 必须 > 0');
+
+    this.lightScreenPos = lightScreenPos;
+    this.density = density;
+    this.decay = decay;
+    this.weight = weight;
+    this.samples = samples;
+    this.exposure = exposure;
+  }
+
+  getFragmentShader(): string {
+    return `
+#define SAMPLES ${this.samples}
+precision mediump float;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec2 u_lightScreenPos;
+uniform float u_density;
+uniform float u_decay;
+uniform float u_weight;
+uniform float u_exposure;
+varying vec2 v_texCoord;
+void main() {
+  vec4 originalColor = texture2D(u_texture, v_texCoord);
+  vec2 deltaTexCoord = (u_lightScreenPos - v_texCoord);
+  deltaTexCoord *= 1.0 / float(SAMPLES) * u_density;
+  vec2 coord = v_texCoord;
+  float illumDecay = 1.0;
+  vec4 color = vec4(0.0);
+  for (int i = 0; i < SAMPLES; i++) {
+    coord -= deltaTexCoord;
+    vec4 sampled = texture2D(u_texture, coord);
+    float d = texture2D(u_depthTexture, coord).r;
+    float occlusion = step(0.99, d);
+    sampled *= occlusion * u_weight * illumDecay;
+    color += sampled;
+    illumDecay *= u_decay;
+  }
+  gl_FragColor = vec4(originalColor.rgb + color.rgb * u_exposure, originalColor.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uLightScreenPos = gl.getUniformLocation(program, 'u_lightScreenPos');
+    if (uLightScreenPos) gl.uniform2f(uLightScreenPos, this.lightScreenPos[0], this.lightScreenPos[1]);
+    const uDensity = gl.getUniformLocation(program, 'u_density');
+    if (uDensity) gl.uniform1f(uDensity, this.density);
+    const uDecay = gl.getUniformLocation(program, 'u_decay');
+    if (uDecay) gl.uniform1f(uDecay, this.decay);
+    const uWeight = gl.getUniformLocation(program, 'u_weight');
+    if (uWeight) gl.uniform1f(uWeight, this.weight);
+    const uExposure = gl.getUniformLocation(program, 'u_exposure');
+    if (uExposure) gl.uniform1f(uExposure, this.exposure);
+  }
+}
