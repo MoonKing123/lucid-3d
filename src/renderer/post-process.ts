@@ -2288,3 +2288,89 @@ void main() {
     if (uFar) gl.uniform1f(uFar, this.far);
   }
 }
+
+/* ── AtmosphericPerspectivePass ── */
+
+export interface AtmosphericPerspectiveOptions {
+  /** 天空色 RGB (0..1)。default [0.6, 0.75, 0.9] (晴朗天空蓝) */
+  skyColor?: [number, number, number];
+  /** 大气密度。default 0.02。must be > 0 */
+  density?: number;
+  /** 远处饱和度衰减强度 0..1。default 0.5。must be in [0, 1] */
+  desaturation?: number;
+  /** 起作用的最近距离（近于此距离不混合）。default 5。must be >= 0 */
+  near?: number;
+  /** 完全混合到天空色的距离。default 100。must be > near */
+  far?: number;
+}
+
+export class AtmosphericPerspectivePass implements EffectPass {
+  readonly name = 'atmosphericPerspective';
+  enabled = true;
+  readonly usesDepth = true;
+
+  skyColor: [number, number, number];
+  density: number;
+  desaturation: number;
+  near: number;
+  far: number;
+
+  constructor(opts: AtmosphericPerspectiveOptions = {}) {
+    this.skyColor = opts.skyColor ?? [0.6, 0.75, 0.9];
+    this.density = opts.density ?? 0.02;
+    this.desaturation = opts.desaturation ?? 0.5;
+    this.near = opts.near ?? 5;
+    this.far = opts.far ?? 100;
+
+    if (!Array.isArray(this.skyColor) || this.skyColor.length !== 3)
+      throw new Error('AtmosphericPerspectivePass: skyColor must be a 3-element array');
+    if (!(this.density > 0))
+      throw new Error('AtmosphericPerspectivePass: density must be > 0');
+    if (this.desaturation < 0 || this.desaturation > 1)
+      throw new Error('AtmosphericPerspectivePass: desaturation must be in [0, 1]');
+    if (!(this.near >= 0))
+      throw new Error('AtmosphericPerspectivePass: near must be >= 0');
+    if (!(this.far > this.near))
+      throw new Error('AtmosphericPerspectivePass: far must be > near');
+  }
+
+  getFragmentShader(): string {
+    return `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec3 u_skyColor;
+uniform float u_density;
+uniform float u_desaturation;
+uniform float u_near;
+uniform float u_far;
+${LINEARIZE_DEPTH_GLSL}
+void main() {
+  vec4 src = texture2D(u_texture, v_texCoord);
+  float d = texture2D(u_depthTexture, v_texCoord).r;
+  float linearD = linearizeDepth(d, 0.1, 1000.0);
+  float t = clamp((linearD - u_near) / (u_far - u_near), 0.0, 1.0);
+  float factor = 1.0 - exp(-u_density * (linearD - u_near));
+  factor = clamp(factor * t, 0.0, 1.0);
+  float luma = dot(src.rgb, vec3(0.299, 0.587, 0.114));
+  vec3 desaturated = mix(src.rgb, vec3(luma), factor * u_desaturation);
+  vec3 final = mix(desaturated, u_skyColor, factor);
+  gl_FragColor = vec4(final, src.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const loc3 = gl.getUniformLocation(program, 'u_skyColor');
+    if (loc3) gl.uniform3fv(loc3, this.skyColor);
+    const set = (name: string, v: number) => {
+      const loc = gl.getUniformLocation(program, name);
+      if (loc) gl.uniform1f(loc, v);
+    };
+    set('u_density', this.density);
+    set('u_desaturation', this.desaturation);
+    set('u_near', this.near);
+    set('u_far', this.far);
+  }
+}
