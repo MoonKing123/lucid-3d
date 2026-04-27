@@ -2067,3 +2067,102 @@ void main() {
     if (uIntensity) gl.uniform1f(uIntensity, this.intensity);
   }
 }
+
+/* ── SSAOOptions ── */
+
+export interface SSAOOptions {
+  /** 遮蔽强度（0=无 SSAO，1=标准，2=过曝）。默认 1，范围 [0, 5] */
+  intensity?: number;
+  /** 采样半径（视图空间，单位米）。默认 0.5，必须 > 0 */
+  radius?: number;
+  /** 自遮蔽偏移（避免精度问题导致表面自身被遮蔽）。默认 0.025，范围 [0, 0.1] */
+  bias?: number;
+  /** 相机近平面 */
+  near?: number;
+  /** 相机远平面，必须 > near */
+  far?: number;
+}
+
+/** 屏幕空间环境光遮蔽后处理：通过采样邻域深度差估算遮蔽，让物体接触面与凹陷区域产生柔和阴影。 */
+export class SSAOPass implements EffectPass {
+  readonly name = 'ssao';
+  enabled = true;
+  readonly usesDepth = true;
+
+  intensity: number;
+  radius: number;
+  bias: number;
+  near: number;
+  far: number;
+
+  constructor(opts: SSAOOptions = {}) {
+    this.intensity = opts.intensity ?? 1;
+    this.radius = opts.radius ?? 0.5;
+    this.bias = opts.bias ?? 0.025;
+    this.near = opts.near ?? 0.1;
+    this.far = opts.far ?? 100;
+
+    if (this.intensity < 0 || this.intensity > 5)
+      throw new Error('SSAOPass: intensity must be in [0, 5]');
+    if (!(this.radius > 0)) throw new Error('SSAOPass: radius must be > 0');
+    if (this.bias < 0 || this.bias > 0.1)
+      throw new Error('SSAOPass: bias must be in [0, 0.1]');
+    if (!(this.near > 0)) throw new Error('SSAOPass: near must be > 0');
+    if (!(this.far > this.near)) throw new Error('SSAOPass: far must be > near');
+  }
+
+  getFragmentShader(): string {
+    return `
+      precision mediump float;
+      varying vec2 v_texCoord;
+      uniform sampler2D u_texture;
+      uniform sampler2D u_depthTexture;
+      uniform vec2 u_texelSize;
+      uniform float u_intensity;
+      uniform float u_radius;
+      uniform float u_bias;
+      uniform float u_near;
+      uniform float u_far;
+      ${LINEARIZE_DEPTH_GLSL}
+      void main() {
+        vec4 color = texture2D(u_texture, v_texCoord);
+        float centerDepth = linearizeDepth(texture2D(u_depthTexture, v_texCoord).r, u_near, u_far);
+        // 8 个固定方向采样（圆形分布，WebGL 1.0 不支持随机数组 uniform）
+        const int N = 8;
+        vec2 dirs[8];
+        dirs[0] = vec2( 1.0,  0.0);
+        dirs[1] = vec2( 0.7,  0.7);
+        dirs[2] = vec2( 0.0,  1.0);
+        dirs[3] = vec2(-0.7,  0.7);
+        dirs[4] = vec2(-1.0,  0.0);
+        dirs[5] = vec2(-0.7, -0.7);
+        dirs[6] = vec2( 0.0, -1.0);
+        dirs[7] = vec2( 0.7, -0.7);
+        float occlusion = 0.0;
+        for (int i = 0; i < 8; i++) {
+          vec2 sampleUV = v_texCoord + dirs[i] * u_texelSize * u_radius * 50.0;
+          float sampleDepth = linearizeDepth(texture2D(u_depthTexture, sampleUV).r, u_near, u_far);
+          // 若邻域深度比中心更近（前方挡住），算作遮蔽
+          float diff = centerDepth - sampleDepth;
+          if (diff > u_bias && diff < u_radius) {
+            occlusion += 1.0;
+          }
+        }
+        occlusion = 1.0 - (occlusion / float(N)) * u_intensity;
+        gl_FragColor = vec4(color.rgb * occlusion, color.a);
+      }
+    `.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const set = (name: string, v: number) => {
+      const loc = gl.getUniformLocation(program, name);
+      if (loc) gl.uniform1f(loc, v);
+    };
+    set('u_intensity', this.intensity);
+    set('u_radius', this.radius);
+    set('u_bias', this.bias);
+    set('u_near', this.near);
+    set('u_far', this.far);
+  }
+}
