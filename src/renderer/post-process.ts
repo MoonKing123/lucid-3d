@@ -2166,3 +2166,125 @@ export class SSAOPass implements EffectPass {
     set('u_far', this.far);
   }
 }
+
+/* ── DepthFogOptions ── */
+
+export interface DepthFogOptions {
+  /** 雾色 RGB（0..1）。默认 [0.7, 0.7, 0.8]（蓝灰色）*/
+  color?: [number, number, number];
+  /** 雾密度，越大越浓。default 1。must be > 0 */
+  density?: number;
+  /** linear 模式起始距离。default 1。must be > 0 */
+  near?: number;
+  /** linear 模式终点距离。default 50。must be > near */
+  far?: number;
+  /** 雾衰减模式。'linear' / 'exp' / 'exp2'。default 'exp' */
+  mode?: 'linear' | 'exp' | 'exp2';
+}
+
+/** 基于深度纹理的距离雾后处理 Pass。 */
+export class DepthFogPass implements EffectPass {
+  readonly name = 'depthFog';
+  enabled = true;
+  readonly usesDepth = true;
+
+  color: [number, number, number];
+  density: number;
+  near: number;
+  far: number;
+  mode: 'linear' | 'exp' | 'exp2';
+
+  constructor(opts?: DepthFogOptions) {
+    const color = opts?.color ?? [0.7, 0.7, 0.8];
+    const density = opts?.density ?? 1;
+    const near = opts?.near ?? 1;
+    const far = opts?.far ?? 50;
+    const mode = opts?.mode ?? 'exp';
+
+    if (!Array.isArray(color) || color.length !== 3)
+      throw new Error('DepthFogPass: color 必须是 3 元素数组');
+    if (!(density > 0))
+      throw new Error('DepthFogPass: density 必须 > 0');
+    if (!(near > 0))
+      throw new Error('DepthFogPass: near 必须 > 0');
+    if (!(far > near))
+      throw new Error('DepthFogPass: far 必须 > near');
+    if (mode !== 'linear' && mode !== 'exp' && mode !== 'exp2')
+      throw new Error(`DepthFogPass: mode 必须是 'linear' | 'exp' | 'exp2'，得到 '${mode}'`);
+
+    this.color = color;
+    this.density = density;
+    this.near = near;
+    this.far = far;
+    this.mode = mode;
+  }
+
+  getFragmentShader(): string {
+    if (this.mode === 'linear') {
+      return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec3 u_fogColor;
+uniform float u_near;
+uniform float u_far;
+varying vec2 v_texCoord;
+${LINEARIZE_DEPTH_GLSL}
+void main() {
+  vec4 srcColor = texture2D(u_texture, v_texCoord);
+  float depth = linearizeDepth(texture2D(u_depthTexture, v_texCoord).r, u_near, u_far);
+  float factor = clamp((depth - u_near) / (u_far - u_near), 0.0, 1.0);
+  gl_FragColor = vec4(mix(srcColor.rgb, u_fogColor, factor), srcColor.a);
+}
+`.trim();
+    }
+    if (this.mode === 'exp') {
+      return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec3 u_fogColor;
+uniform float u_density;
+uniform float u_near;
+uniform float u_far;
+varying vec2 v_texCoord;
+${LINEARIZE_DEPTH_GLSL}
+void main() {
+  vec4 srcColor = texture2D(u_texture, v_texCoord);
+  float depth = linearizeDepth(texture2D(u_depthTexture, v_texCoord).r, u_near, u_far);
+  float factor = 1.0 - exp(-u_density * depth);
+  gl_FragColor = vec4(mix(srcColor.rgb, u_fogColor, factor), srcColor.a);
+}
+`.trim();
+    }
+    // exp2
+    return `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform sampler2D u_depthTexture;
+uniform vec3 u_fogColor;
+uniform float u_density;
+uniform float u_near;
+uniform float u_far;
+varying vec2 v_texCoord;
+${LINEARIZE_DEPTH_GLSL}
+void main() {
+  vec4 srcColor = texture2D(u_texture, v_texCoord);
+  float depth = linearizeDepth(texture2D(u_depthTexture, v_texCoord).r, u_near, u_far);
+  float factor = 1.0 - exp(-u_density * u_density * depth * depth);
+  gl_FragColor = vec4(mix(srcColor.rgb, u_fogColor, factor), srcColor.a);
+}
+`.trim();
+  }
+
+  setUniforms(gl: WebGLRenderingContext, program: WebGLProgram): void {
+    const uFogColor = gl.getUniformLocation(program, 'u_fogColor');
+    if (uFogColor) gl.uniform3f(uFogColor, this.color[0], this.color[1], this.color[2]);
+    const uDensity = gl.getUniformLocation(program, 'u_density');
+    if (uDensity) gl.uniform1f(uDensity, this.density);
+    const uNear = gl.getUniformLocation(program, 'u_near');
+    if (uNear) gl.uniform1f(uNear, this.near);
+    const uFar = gl.getUniformLocation(program, 'u_far');
+    if (uFar) gl.uniform1f(uFar, this.far);
+  }
+}
