@@ -10,9 +10,16 @@ export class AnimationClip {
   readonly duration: number;
   readonly tracks: ReadonlyArray<KeyframeTrack>;
 
-  constructor(name: string, tracks: KeyframeTrack[]) {
+  constructor(name: string, tracks: KeyframeTrack[]);
+  constructor(name: string, duration: number, tracks: KeyframeTrack[]);
+  constructor(name: string, tracksOrDuration: KeyframeTrack[] | number, tracks?: KeyframeTrack[]) {
     this.name = name;
-    this.tracks = tracks;
-    this.duration = tracks.reduce((max, t) => Math.max(max, t.duration), 0);
+    if (typeof tracksOrDuration === 'number') {
+      this.tracks = tracks ?? [];
+      this.duration = tracksOrDuration > 0 ? tracksOrDuration : this.tracks.reduce((max, t) => Math.max(max, t.duration), 0);
+    } else {
+      this.tracks = tracksOrDuration;
+      this.duration = this.tracks.reduce((max, t) => Math.max(max, t.duration), 0);
+    }
   }
 }
