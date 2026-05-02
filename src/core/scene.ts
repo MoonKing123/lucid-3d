@@ -9,6 +9,7 @@ import { AmbientLight, DirectionalLight } from './light';
 import { PointLight } from './point-light';
 import { SpotLight } from './spot-light';
 import { CubeTexture } from '../renderer/cube-texture';
+import type { CascadedShadowMap } from '../renderer/cascaded-shadow-map';
 
 export interface FogOptions {
   color: Vec3;
@@ -31,6 +32,7 @@ export interface CollectedLights {
 export class Scene extends Node3D {
   background: Vec3 | CubeTexture;
   fog: FogOptions | null;
+  cascadedShadowMap: CascadedShadowMap | null = null;
 
   constructor(opts?: SceneOptions) {
     super('scene');

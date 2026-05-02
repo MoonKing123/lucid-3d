@@ -47,6 +47,7 @@ function buildFragmentShader(hasEnvMap: boolean): string {
     finalColor = mix(finalColor, envColor, u_reflectivity);` : '';
 
   return `
+  #define NUM_CASCADES 4
   precision mediump float;
   // 向后兼容（单光源，保留声明供旧测试检查）
   uniform vec3 u_lightDir;
@@ -89,12 +90,51 @@ function buildFragmentShader(hasEnvMap: boolean): string {
   // 高光贴图
   uniform sampler2D u_specularMap;
   uniform float u_hasSpecularMap;
+  // CSM 级联阴影贴图
+  uniform sampler2D u_csmShadowMap[NUM_CASCADES];
+  uniform mat4 u_csmLightSpaceMatrix[NUM_CASCADES];
+  uniform float u_csmSplits[NUM_CASCADES];
+  uniform bool u_csmEnabled;
   ${envUniforms}
   varying vec3 v_normal;
   varying vec3 v_worldPos;
   varying vec2 v_uv;
   varying vec3 v_tangent;
   varying vec3 v_bitangent;
+
+  // 根据 viewDepth 选择级联并计算阴影因子（1.0=无阴影，0.0=全阴影）
+  // WebGL 1.0 不支持动态数组索引，使用展开式 if-else
+  float computeCSMShadow(vec3 worldPos, float viewDepth) {
+    if (!u_csmEnabled) return 1.0;
+    int cascadeIdx = 3;
+    if (viewDepth <= u_csmSplits[0]) cascadeIdx = 0;
+    else if (viewDepth <= u_csmSplits[1]) cascadeIdx = 1;
+    else if (viewDepth <= u_csmSplits[2]) cascadeIdx = 2;
+    vec4 lsPos;
+    vec3 proj;
+    float depth;
+    if (cascadeIdx == 0) {
+      lsPos = u_csmLightSpaceMatrix[0] * vec4(worldPos, 1.0);
+      proj = lsPos.xyz / lsPos.w * 0.5 + 0.5;
+      depth = texture2D(u_csmShadowMap[0], proj.xy).r;
+      return proj.z - 0.005 > depth ? 0.0 : 1.0;
+    } else if (cascadeIdx == 1) {
+      lsPos = u_csmLightSpaceMatrix[1] * vec4(worldPos, 1.0);
+      proj = lsPos.xyz / lsPos.w * 0.5 + 0.5;
+      depth = texture2D(u_csmShadowMap[1], proj.xy).r;
+      return proj.z - 0.005 > depth ? 0.0 : 1.0;
+    } else if (cascadeIdx == 2) {
+      lsPos = u_csmLightSpaceMatrix[2] * vec4(worldPos, 1.0);
+      proj = lsPos.xyz / lsPos.w * 0.5 + 0.5;
+      depth = texture2D(u_csmShadowMap[2], proj.xy).r;
+      return proj.z - 0.005 > depth ? 0.0 : 1.0;
+    } else {
+      lsPos = u_csmLightSpaceMatrix[3] * vec4(worldPos, 1.0);
+      proj = lsPos.xyz / lsPos.w * 0.5 + 0.5;
+      depth = texture2D(u_csmShadowMap[3], proj.xy).r;
+      return proj.z - 0.005 > depth ? 0.0 : 1.0;
+    }
+  }
 
   void main() {
     vec3 N = normalize(v_normal);
@@ -115,7 +155,8 @@ function buildFragmentShader(hasEnvMap: boolean): string {
       ? texture2D(u_specularMap, v_uv).rgb * u_specular
       : u_specular;
 
-    vec3 color = u_ambientColor * baseDiffuse;
+    vec3 ambientColor = u_ambientColor * baseDiffuse;
+    vec3 directColor = vec3(0.0);
 
     // 方向光循环
     for (int i = 0; i < 4; i++) {
@@ -124,8 +165,8 @@ function buildFragmentShader(hasEnvMap: boolean): string {
       vec3 H = normalize(L + V);
       float diff = max(dot(N, L), 0.0);
       float spec = pow(max(dot(N, H), 0.0), u_shininess);
-      color += u_dirLightColors[i] * baseDiffuse * diff;
-      color += u_dirLightColors[i] * baseSpecular * spec;
+      directColor += u_dirLightColors[i] * baseDiffuse * diff;
+      directColor += u_dirLightColors[i] * baseSpecular * spec;
     }
 
     // 点光源循环
@@ -145,8 +186,8 @@ function buildFragmentShader(hasEnvMap: boolean): string {
       } else {
         attenuation = pow(max(1.0 - d / dist, 0.0), decay);
       }
-      color += u_pointLightColors[i] * baseDiffuse * diff * attenuation;
-      color += u_pointLightColors[i] * baseSpecular * spec * attenuation;
+      directColor += u_pointLightColors[i] * baseDiffuse * diff * attenuation;
+      directColor += u_pointLightColors[i] * baseSpecular * spec * attenuation;
     }
 
     // 聚光灯循环
@@ -173,9 +214,13 @@ function buildFragmentShader(hasEnvMap: boolean): string {
       float spotEffect = dot(normalize(v_worldPos - u_spotLightPositions[i]), u_spotLightDirs[i]);
       float spotAttenuation = smoothstep(cosOuter, cosInner, spotEffect);
       float attenuation = distAttenuation * spotAttenuation;
-      color += u_spotLightColors[i] * baseDiffuse  * diff * attenuation;
-      color += u_spotLightColors[i] * baseSpecular * spec * attenuation;
+      directColor += u_spotLightColors[i] * baseDiffuse  * diff * attenuation;
+      directColor += u_spotLightColors[i] * baseSpecular * spec * attenuation;
     }
+
+    float viewDepth = length(v_worldPos - u_cameraPos);
+    float shadowFactor = computeCSMShadow(v_worldPos, viewDepth);
+    vec3 color = ambientColor + directColor * shadowFactor;
 
     vec3 emissiveColor = u_hasEmissiveMap > 0.5
       ? u_emissive * texture2D(u_emissiveMap, v_uv).rgb
@@ -237,6 +282,11 @@ export class PhongMaterial extends Material {
     this.envMap           = opts.envMap           ?? null;
     this.envMapIntensity  = opts.envMapIntensity  ?? 1.0;
     this.reflectivity     = opts.reflectivity     ?? 0;
+  }
+
+  /** 返回 fragment shader 源码（供测试和调试使用） */
+  getFragmentShader(): string {
+    return this.fragmentShader;
   }
 
   /** 克隆 Phong 材质（Vec3 属性深拷贝，Texture/CubeTexture 引用共享） */
