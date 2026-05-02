@@ -28,8 +28,27 @@ export interface CascadeSplit {
   far: number;
 }
 
-export function splitFrustum(_opts: CascadeSplitOptions): CascadeSplit[] {
-  throw new Error('CascadeSplitter: Not implemented (stub)');
-}
+export function splitFrustum(opts: CascadeSplitOptions): CascadeSplit[] {
+  const { near, far, numCascades } = opts;
+  const lambda = opts.lambda ?? 0.5;
 
-export const __STUB__ = true;
+  if (numCascades < 1) throw new Error('CascadeSplitter: numCascades 必须 >= 1');
+  if (near >= far) throw new Error('CascadeSplitter: near 必须小于 far');
+
+  const splits: CascadeSplit[] = [];
+  let prevBound = near;
+
+  for (let i = 1; i <= numCascades; i++) {
+    const t = i / numCascades;
+    const uniformSplit = near + (far - near) * t;
+    // near=0 时对数项无意义，退化为 uniform
+    const logSplit = near > 0 ? near * Math.pow(far / near, t) : uniformSplit;
+    const bound = i < numCascades
+      ? lambda * logSplit + (1 - lambda) * uniformSplit
+      : far; // 最后一级精确等于 far，消除浮点误差
+    splits.push({ near: prevBound, far: bound });
+    prevBound = bound;
+  }
+
+  return splits;
+}
