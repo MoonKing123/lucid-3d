@@ -11,10 +11,10 @@
  */
 
 import type { PerspectiveCamera } from '../core/camera';
-import type { Vec3 } from '../math/vec3';
-import type { Mat4 } from '../math/mat4';
-import type { ShadowMap } from './shadow-map';
-import type { CascadeSplit } from './cascade-splitter';
+import { type Vec3, vec3, normalize } from '../math/vec3';
+import { type Mat4, perspective, lookAt, ortho, multiply, invert, transformPoint } from '../math/mat4';
+import { ShadowMap } from './shadow-map';
+import { type CascadeSplit, splitFrustum } from './cascade-splitter';
 
 export interface CascadedShadowMapOptions {
   /** 级联数 (推荐 2-4) */
@@ -29,6 +29,21 @@ export interface CascadedShadowMapOptions {
   lambda?: number;
 }
 
+/** 为每个级联的 ShadowMap 附加 size 属性（ShadowMap 内部用 resolution） */
+class CsmEntry extends ShadowMap {
+  readonly size: number;
+  constructor(size: number, softness: 0 | 1 | 2, bias: number) {
+    super({ resolution: size, softness, bias });
+    this.size = size;
+  }
+}
+
+/** NDC 立方体 8 个角点 */
+const NDC_CORNERS: [number, number, number][] = [
+  [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1],
+  [-1, -1,  1], [1, -1,  1], [-1, 1,  1], [1, 1,  1],
+];
+
 export class CascadedShadowMap {
   readonly numCascades: number;
   readonly size: number;
@@ -36,25 +51,97 @@ export class CascadedShadowMap {
   readonly bias: number;
   readonly lambda: number;
   /** N 个 ShadowMap 实例，按 cascade index 排列 */
-  readonly cascades: ShadowMap[] = [];
+  readonly cascades: ShadowMap[];
   /** 每级 frustum split (near/far)，由 update() 刷新 */
   splits: CascadeSplit[] = [];
   /** 每级 light-space view-proj matrix，由 update() 刷新 */
   lightSpaceMatrices: Mat4[] = [];
 
-  constructor(_opts: CascadedShadowMapOptions) {
-    throw new Error('CascadedShadowMap: Not implemented (stub)');
+  constructor(opts: CascadedShadowMapOptions) {
+    if (opts.numCascades < 1) {
+      throw new Error('CascadedShadowMap: numCascades 必须 >= 1');
+    }
+
+    this.numCascades = opts.numCascades;
+    this.size        = opts.size     ?? 1024;
+    this.softness    = opts.softness ?? 0;
+    this.bias        = opts.bias     ?? 0.005;
+    this.lambda      = opts.lambda   ?? 0.5;
+
+    this.cascades            = [];
+    this.lightSpaceMatrices  = [];
+
+    for (let i = 0; i < this.numCascades; i++) {
+      this.cascades.push(new CsmEntry(this.size, this.softness, this.bias));
+      this.lightSpaceMatrices.push(new Float32Array(16) as Mat4);
+    }
   }
 
   /** 根据相机和方向光更新每级 split + light-space matrix。每帧调用一次。 */
-  update(_camera: PerspectiveCamera, _lightDir: Vec3): void {
-    throw new Error('CascadedShadowMap.update: Not implemented (stub)');
+  update(camera: PerspectiveCamera, lightDir: Vec3): void {
+    this.splits = splitFrustum({
+      near:        camera.near,
+      far:         camera.far,
+      numCascades: this.numCascades,
+      lambda:      this.lambda,
+    });
+
+    const nLight = normalize(lightDir);
+    const up = Math.abs(nLight[1]) > 0.999 ? vec3(1, 0, 0) : vec3(0, 1, 0);
+
+    for (let i = 0; i < this.numCascades; i++) {
+      const { near, far } = this.splits[i];
+
+      // 用子 frustum 的 near/far 构建反投影矩阵，把 NDC 角点变换到世界空间
+      const subProj = perspective(camera.fov, camera.aspect, near, far);
+      const vp      = multiply(subProj, camera.viewMatrix);
+      const invVP   = invert(vp);
+      if (!invVP) continue;
+
+      const corners = NDC_CORNERS.map(([x, y, z]) =>
+        transformPoint(invVP, vec3(x, y, z)),
+      );
+
+      // 计算子 frustum 中心
+      let cx = 0, cy = 0, cz = 0;
+      for (const c of corners) { cx += c[0]; cy += c[1]; cz += c[2]; }
+      cx /= 8; cy /= 8; cz /= 8;
+      const center = vec3(cx, cy, cz);
+
+      // 将光源眼点移到中心后方足够远，确保所有角点在光源前方（负 Z 侧）
+      const eye = vec3(
+        center[0] - nLight[0] * 1000,
+        center[1] - nLight[1] * 1000,
+        center[2] - nLight[2] * 1000,
+      );
+      const lightView = lookAt(eye, center, up);
+
+      // 在光源空间求 AABB
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+
+      for (const c of corners) {
+        const lc = transformPoint(lightView, c);
+        if (lc[0] < minX) minX = lc[0];
+        if (lc[0] > maxX) maxX = lc[0];
+        if (lc[1] < minY) minY = lc[1];
+        if (lc[1] > maxY) maxY = lc[1];
+        if (lc[2] < minZ) minZ = lc[2];
+        if (lc[2] > maxZ) maxZ = lc[2];
+      }
+
+      // OpenGL 约定：相机看向 -Z，near/far 为正值
+      // 光源空间 z ∈ [minZ, maxZ]（均为负值），near = -maxZ，far = -minZ
+      const lightProj = ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
+      this.lightSpaceMatrices[i] = multiply(lightProj, lightView);
+    }
   }
 
   /** 释放所有级联的 RenderTarget GPU 资源 */
-  dispose(_gl: WebGLRenderingContext): void {
-    throw new Error('CascadedShadowMap.dispose: Not implemented (stub)');
+  dispose(gl: WebGLRenderingContext): void {
+    for (const cascade of this.cascades) {
+      cascade.dispose(gl);
+    }
   }
 }
-
-export const __STUB__ = true;
