@@ -9,7 +9,8 @@ import { Frustum } from '../math/frustum';
 import { buildRenderQueue, type QueueItem } from './render-queue';
 import { Node3D } from '../core/node3d';
 import { Scene } from '../core/scene';
-import { Camera } from '../core/camera';
+import { Camera, PerspectiveCamera } from '../core/camera';
+import { CascadedShadowMap } from './cascaded-shadow-map';
 import { AmbientLight, DirectionalLight } from '../core/light';
 import { PointLight } from '../core/point-light';
 import { SpotLight } from '../core/spot-light';
@@ -98,6 +99,11 @@ interface PhongLocations {
   uSpotLightDecays: Array<WebGLUniformLocation | null>;
   uSpotLightCosAngles: Array<WebGLUniformLocation | null>;
   uSpotLightPenumbras: Array<WebGLUniformLocation | null>;
+  // CSM 级联阴影
+  uCsmEnabled: WebGLUniformLocation | null;
+  uCsmShadowMaps: Array<WebGLUniformLocation | null>;
+  uCsmLightSpaceMatrices: Array<WebGLUniformLocation | null>;
+  uCsmSplits: WebGLUniformLocation | null;
 }
 
 interface FogLocations {
@@ -354,6 +360,11 @@ export class WebGLRenderer {
   private spriteQuad: SpriteQuad | null = null;
   private skyboxRenderer: SkyboxRenderer | null = null;
   private particleCache: WeakMap<ParticleEmitter, ParticleRenderer> = new WeakMap();
+  private depthProgram: {
+    program: WebGLProgram;
+    aPosition: number;
+    uLightMVP: WebGLUniformLocation | null;
+  } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl', {
@@ -460,6 +471,19 @@ export class WebGLRenderer {
       spotLights,
     };
 
+    // CSM 处理：shadow pass + 主 pass 绑定
+    const csm = scene.cascadedShadowMap;
+    if (csm !== null) {
+      if (csm.numCascades !== 4) {
+        throw new Error(`WebGLRenderer: CSM numCascades 必须为 4，收到 ${csm.numCascades}`);
+      }
+      const lightDir = dirLights.length > 0 ? dirLights[0].dir : vec3(0, -1, 0);
+      csm.update(camera as PerspectiveCamera, lightDir);
+      this._renderCascadeShadowPass(scene, csm);
+      // 恢复主视口和 framebuffer
+      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    }
+
     const viewProj = camera.viewProjectionMatrix;
 
     // 建立视锥体用于剔除
@@ -502,11 +526,11 @@ export class WebGLRenderer {
 
     // 先绘制不透明网格
     for (const item of queue.opaque) {
-      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog);
+      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog, csm);
     }
     // 再绘制透明网格
     for (const item of queue.transparent) {
-      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog);
+      this._drawMesh(item.mesh, viewProj, lightCtx, scene.fog, csm);
     }
 
     // Line 和 Sprite 在所有 Mesh 之后渲染（叠加行为）
@@ -536,6 +560,71 @@ export class WebGLRenderer {
   dispose(): void {
     // WeakMaps will be GC'd along with the Geometry/Material objects.
     // Nothing else to clean up explicitly without iterating all cached entries.
+  }
+
+  private _getDepthProgram(): { program: WebGLProgram; aPosition: number; uLightMVP: WebGLUniformLocation | null } {
+    if (this.depthProgram) return this.depthProgram;
+    const gl = this.gl;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, `
+      attribute vec3 a_position;
+      uniform mat4 u_lightMVP;
+      void main() {
+        gl_Position = u_lightMVP * vec4(a_position, 1.0);
+      }
+    `);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      void main() {
+        gl_FragColor = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0);
+      }
+    `);
+    const program = createProgram(gl, vs, fs);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    this.depthProgram = {
+      program,
+      aPosition: gl.getAttribLocation(program, 'a_position'),
+      uLightMVP:  gl.getUniformLocation(program, 'u_lightMVP'),
+    };
+    return this.depthProgram;
+  }
+
+  /** 为每个 cascade 渲染深度 pass */
+  private _renderCascadeShadowPass(scene: Scene, csm: CascadedShadowMap): void {
+    const gl = this.gl;
+    const prog = this._getDepthProgram();
+    gl.useProgram(prog.program);
+
+    for (let i = 0; i < csm.numCascades; i++) {
+      const rt = csm.cascades[i].renderTarget;
+      if (!rt.framebuffer) rt.initialize(gl);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer);
+      gl.viewport(0, 0, rt.width, rt.height);
+      gl.clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT);
+
+      const lightMatrix = csm.lightSpaceMatrices[i];
+
+      scene.traverse((node) => {
+        if (!(node instanceof Mesh) || node instanceof SkinnedMesh) return;
+        const uploaded = this._getGeometry(node.geometry);
+        const lightMVP = multiply(lightMatrix, node.worldMatrix);
+        if (prog.uLightMVP) gl.uniformMatrix4fv(prog.uLightMVP, false, lightMVP);
+        if (prog.aPosition >= 0) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, uploaded.positionBuffer);
+          gl.enableVertexAttribArray(prog.aPosition);
+          gl.vertexAttribPointer(prog.aPosition, 3, gl.FLOAT, false, 0, 0);
+        }
+        if (uploaded.indexBuffer) {
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, uploaded.indexBuffer);
+          gl.drawElements(gl.TRIANGLES, uploaded.indexCount, gl.UNSIGNED_SHORT, 0);
+        } else {
+          gl.drawArrays(gl.TRIANGLES, 0, uploaded.vertexCount);
+        }
+      });
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
   private _applyTextureSamplingParams(texture: Texture): void {
@@ -709,6 +798,12 @@ export class WebGLRenderer {
         spCosAngles.push(gl.getUniformLocation(program, `u_spotLightCosAngles[${i}]`));
         spPenumbras.push(gl.getUniformLocation(program, `u_spotLightPenumbras[${i}]`));
       }
+      const csmShadowMaps: Array<WebGLUniformLocation | null> = [];
+      const csmMatrices: Array<WebGLUniformLocation | null> = [];
+      for (let i = 0; i < 4; i++) {
+        csmShadowMaps.push(gl.getUniformLocation(program, `u_csmShadowMap[${i}]`));
+        csmMatrices.push(gl.getUniformLocation(program, `u_csmLightSpaceMatrix[${i}]`));
+      }
       compiled.phong = {
         aNormal:            gl.getAttribLocation(program, 'a_normal'),
         uModelMatrix:       gl.getUniformLocation(program, 'u_modelMatrix'),
@@ -748,6 +843,10 @@ export class WebGLRenderer {
         uSpotLightDecays:   spDecays,
         uSpotLightCosAngles: spCosAngles,
         uSpotLightPenumbras: spPenumbras,
+        uCsmEnabled:           gl.getUniformLocation(program, 'u_csmEnabled'),
+        uCsmShadowMaps:        csmShadowMaps,
+        uCsmLightSpaceMatrices: csmMatrices,
+        uCsmSplits:            gl.getUniformLocation(program, 'u_csmSplits[0]'),
       };
     }
 
@@ -881,7 +980,13 @@ export class WebGLRenderer {
     return this.skinningProgram;
   }
 
-  private _drawMesh(mesh: Mesh, viewProj: Mat4, lightCtx: LightContext, fog: FogOptions | null = null): void {
+  private _drawMesh(
+    mesh: Mesh,
+    viewProj: Mat4,
+    lightCtx: LightContext,
+    fog: FogOptions | null = null,
+    csm: CascadedShadowMap | null = null,
+  ): void {
     // SkinnedMesh 走专用蒙皮路径
     if (mesh instanceof SkinnedMesh) {
       this._drawSkinnedMesh(mesh, viewProj);
@@ -1155,6 +1260,30 @@ export class WebGLRenderer {
         if (phong.uEnvMap)          gl.uniform1i(phong.uEnvMap, 4);
         if (phong.uEnvMapIntensity) gl.uniform1f(phong.uEnvMapIntensity, mat.envMapIntensity);
         if (phong.uReflectivity)    gl.uniform1f(phong.uReflectivity, mat.reflectivity);
+      }
+
+      // CSM 绑定（纹理单元 5–8）
+      if (csm !== null) {
+        for (let i = 0; i < 4; i++) {
+          const rt = csm.cascades[i].renderTarget;
+          if (rt.colorTexture) {
+            gl.activeTexture(gl.TEXTURE0 + 5 + i);
+            gl.bindTexture(gl.TEXTURE_2D, rt.colorTexture);
+            const samplerLoc = phong.uCsmShadowMaps[i];
+            if (samplerLoc) gl.uniform1i(samplerLoc, 5 + i);
+          }
+          const matrixLoc = phong.uCsmLightSpaceMatrices[i];
+          if (matrixLoc) gl.uniformMatrix4fv(matrixLoc, false, csm.lightSpaceMatrices[i]);
+        }
+        if (phong.uCsmSplits && csm.splits.length >= 4) {
+          gl.uniform1fv(phong.uCsmSplits, new Float32Array([
+            csm.splits[0].far, csm.splits[1].far,
+            csm.splits[2].far, csm.splits[3].far,
+          ]));
+        }
+        if (phong.uCsmEnabled) gl.uniform1i(phong.uCsmEnabled, 1);
+      } else {
+        if (phong.uCsmEnabled) gl.uniform1i(phong.uCsmEnabled, 0);
       }
     }
 
