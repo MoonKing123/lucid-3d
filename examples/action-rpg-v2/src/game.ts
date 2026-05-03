@@ -9,6 +9,7 @@ import { CameraController } from './camera-controller';
 import { createTerrain } from './terrain';
 import { EnemyManager } from './enemy-manager';
 import { FollowCamera } from '../../../src/core/follow-camera';
+import type { CombatTarget } from './combat';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
 
@@ -45,6 +46,14 @@ export class Game {
     this._camCtrl      = new CameraController({ horizDist: 8, height: 4 });
     this._camCtrl.setTarget(this._player.node);
 
+    // 将 EnemyManager 的 enemies 作为 CombatTarget 注入玩家战斗系统
+    const combatTargets: CombatTarget[] = this._enemyManager.enemies.map(e => ({
+      node:   e.node,
+      health: e.health,
+      get isDead() { return e.isDead; },
+    }));
+    this._player.setCombatTargets(combatTargets);
+
     terrain.traverse(n => { if (n !== terrain) this._drawCallCount++; });
     this._drawCallCount++; // player
     this._drawCallCount += this._enemyManager.enemies.length; // enemies
@@ -80,6 +89,13 @@ export class Game {
           this._renderer.render(this._scene, this._camCtrl.camera);
         }
       };
+
+      // 鼠标按钮 → 战斗触发
+      canvas.addEventListener('mousedown', (e) => {
+        if (e.button === 0) this._player.triggerMeleeAttack();  // 左键近战
+        if (e.button === 2) this._player.triggerBowShoot();     // 右键射箭
+      });
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
     this._camCtrl.snap();
@@ -89,7 +105,10 @@ export class Game {
   stop():  void { this._loop?.stop();  }
 
   update(dt: number): void {
-    this._player.update(dt, this._simInput, this._camCtrl.yaw);
+    // 地形高度：当前为平坦地面 y=0
+    const getTerrainY = (_x: number, _z: number) => 0;
+
+    this._player.update(dt, this._simInput, this._camCtrl.yaw, getTerrainY);
     this._enemyManager.update(dt);
     this._world.step();
     this._camCtrl.update(dt);
@@ -103,6 +122,11 @@ export class Game {
     this._camCtrl.applyMouseDelta(dx, dy);
   }
 
+  /** 触发近战攻击（测试用） */
+  triggerMeleeAttack(): void { this._player.triggerMeleeAttack(); }
+  /** 触发远程射箭（测试用） */
+  triggerBowShoot(): void    { this._player.triggerBowShoot(); }
+
   get player()        { return this._player; }
   get camera()        { return this._camCtrl.camera; }
   get followCamera(): FollowCamera { return this._camCtrl.camera; }
@@ -111,4 +135,5 @@ export class Game {
   get enemies()       { return this._enemyManager.enemies; }
   get enemyManager()  { return this._enemyManager; }
   get drawCallCount() { return this._drawCallCount; }
+  get combat()        { return this._player.combat; }
 }
