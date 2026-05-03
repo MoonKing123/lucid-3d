@@ -11,6 +11,7 @@ import {
   createRunClip,
   createAttackClip,
 } from './animations';
+import { CombatSystemV2, type CombatTarget } from './combat';
 
 export interface InputLike {
   isKeyDown(key: string): boolean;
@@ -19,18 +20,23 @@ export interface InputLike {
 const MOVE_SPEED   = 4;
 const SPRINT_SPEED = 10;
 
+// 地形高度函数类型（用于脚步贴地 IK）
+export type TerrainHeightFn = (x: number, z: number) => number;
+
 export class Player {
   readonly node: Node3D;
   readonly mixer: AnimationMixer;
   readonly stateMachine: AnimationStateMachine;
+  readonly combat: CombatSystemV2;
 
   private readonly _controller: CharacterController;
   private readonly _attackAction: AnimationAction;
+  private readonly _skeleton: ReturnType<typeof createSkeleton>;
 
-  // 当前水平速度大小（供状态机条件引用）
-  private _horzSpeed: number = 0;
-  // 单帧攻击触发标志
-  private _attackTrigger: boolean = false;
+  private _horzSpeed  = 0;
+  private _attackTrigger  = false;
+  private _bowTrigger     = false;
+  private _playerForward: Vec3 = vec3(0, 0, 1);
 
   constructor(world: CollisionWorld) {
     this.node = new Node3D('player');
@@ -42,8 +48,8 @@ export class Player {
       collisionWorld: world,
     });
 
-    const skeleton = createSkeleton();
-    this.mixer = new AnimationMixer(skeleton);
+    this._skeleton = createSkeleton();
+    this.mixer = new AnimationMixer(this._skeleton);
 
     const idleAction   = this.mixer.clipAction(createIdleClip());
     const runAction    = this.mixer.clipAction(createRunClip());
@@ -55,14 +61,12 @@ export class Player {
 
     this._attackAction = attackAction;
 
-    // 注册状态机三态
     this.stateMachine = new AnimationStateMachine();
     this.stateMachine
       .addState('idle',   idleAction)
       .addState('run',    runAction)
       .addState('attack', attackAction);
 
-    // 添加转换条件
     this.stateMachine
       .addTransition('idle', 'run',
         () => this._horzSpeed > 0.1, 0.15)
@@ -72,14 +76,37 @@ export class Player {
         () => this._attackTrigger, 0.1)
       .addTransition('run', 'attack',
         () => this._attackTrigger, 0.1)
-      // attack 动画播完（isRunning=false）后自动回 idle
       .addTransition('attack', 'idle',
         () => !this._attackAction.isRunning, 0.15);
+
+    // 战斗系统初始化（enemies 由 game.ts 通过 setCombatTargets 注入）
+    this.combat = new CombatSystemV2(this.node, []);
   }
 
   get position(): Vec3 { return this.node.position; }
+  get skeleton() { return this._skeleton; }
 
-  update(dt: number, input: InputLike, cameraYaw: number): void {
+  /** 注入可命中目标（由 game.ts 在初始化后调用） */
+  setCombatTargets(targets: readonly CombatTarget[]): void {
+    this.combat.setTargets(targets);
+  }
+
+  /** 触发近战（鼠标左键 / 键盘 F） */
+  triggerMeleeAttack(): void {
+    this._attackTrigger = true;
+  }
+
+  /** 触发射箭（鼠标右键 / 键盘 G） */
+  triggerBowShoot(): void {
+    this._bowTrigger = true;
+  }
+
+  update(
+    dt: number,
+    input: InputLike,
+    cameraYaw: number,
+    getTerrainY: TerrainHeightFn = () => 0,
+  ): void {
     const fwdX   = -Math.sin(cameraYaw);
     const fwdZ   =  Math.cos(cameraYaw);
     const rightX =  Math.cos(cameraYaw);
@@ -92,7 +119,7 @@ export class Player {
     if (input.isKeyDown('d') || input.isKeyDown('D')) { dx += rightX; dz += rightZ; }
 
     const isSprinting = input.isKeyDown('Shift') || input.isKeyDown('shift');
-    const jumpPressed = input.isKeyDown(' ');
+    const jumpPressed  = input.isKeyDown(' ');
 
     const mLen    = Math.sqrt(dx * dx + dz * dz);
     const isMoving = mLen > 1e-6;
@@ -108,27 +135,52 @@ export class Player {
         this.node.position[0] += dx * bonus;
         this.node.position[2] += dz * bonus;
       }
+      // 记录朝向（XZ 归一化）
+      this._playerForward = vec3(dx / mLen, 0, dz / mLen);
     } else {
       this._horzSpeed = 0;
     }
 
     this._controller.update(dt);
 
-    // 攻击触发：仅当不在 attack 状态时设置
+    // 键盘触发近战（F 键）
     if ((input.isKeyDown('f') || input.isKeyDown('F')) &&
         this.stateMachine.currentState !== 'attack') {
       this._attackTrigger = true;
     }
 
-    // 状态机驱动动画切换（内部会调用 action._update 推进时间）
+    // 状态机更新（含动画切换）
     this.stateMachine.update(dt);
 
-    // 状态机消费 attackTrigger 后清除
+    // 攻击状态消费触发标志
     if (this.stateMachine.currentState === 'attack') {
+      if (this._attackTrigger) {
+        this.combat.meleeAttack(this.node.position, this._playerForward);
+      }
       this._attackTrigger = false;
     }
 
-    // 以 dt=0 触发骨骼权重混合（避免双重推进动画时间）
+    // 射箭（G 键触发）
+    if (input.isKeyDown('g') || input.isKeyDown('G') || this._bowTrigger) {
+      this.combat.bowShoot(this.node.position, this._playerForward);
+      this._bowTrigger = false;
+    }
+
     this.mixer.update(0);
+
+    // TwoBoneIK 脚步贴地（每帧）
+    this.combat.applyFootIK(this._skeleton, this.node.position, getTerrainY);
+
+    // 弓箭飞行时 IKChain 手抓弓
+    if (this.combat.bowActive) {
+      const bowGrip = vec3(
+        this.node.position[0] - 0.4,
+        this.node.position[1] + 1.1,
+        this.node.position[2] + 0.3,
+      );
+      this.combat.applyBowHandIK(this._skeleton, bowGrip, this.node.position);
+    }
+
+    this.combat.update(dt);
   }
 }
