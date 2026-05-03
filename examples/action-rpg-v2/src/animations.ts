@@ -98,6 +98,33 @@ export function createRunClip(): AnimationClip {
   return new AnimationClip('run', [track]);
 }
 
+// 8 方向跑动 clip（用轻微不同的旋转幅度区分方向）
+export function createRunDirectionalClips(): AnimationClip[] {
+  const directions = [
+    { name: 'run-forward',       tilt:  0.10 },
+    { name: 'run-forward-right', tilt:  0.09 },
+    { name: 'run-right',         tilt:  0.08 },
+    { name: 'run-back-right',    tilt: -0.09 },
+    { name: 'run-back',          tilt: -0.10 },
+    { name: 'run-back-left',     tilt: -0.09 },
+    { name: 'run-left',          tilt:  0.08 },
+    { name: 'run-forward-left',  tilt:  0.09 },
+  ];
+  return directions.map(({ name, tilt }) => {
+    const track = new KeyframeTrack({
+      targetPath: 'rotation',
+      jointIndex: 1,
+      times: new Float32Array([0, 0.2, 0.4]),
+      values: new Float32Array([
+        0, 0, -tilt, 0.9950,
+        0, 0,  tilt, 0.9950,
+        0, 0, -tilt, 0.9950,
+      ]),
+    });
+    return new AnimationClip(name, [track]);
+  });
+}
+
 // attack 动画 0.5s，不循环
 export function createAttackClip(): AnimationClip {
   const track = new KeyframeTrack({

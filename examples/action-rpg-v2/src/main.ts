@@ -5,6 +5,7 @@ canvas.width  = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const game = new Game(canvas);
+(window as unknown as Record<string, unknown>).__game = game;
 
 let isDragging = false;
 let lastX = 0, lastY = 0;
@@ -25,7 +26,11 @@ canvas.focus();
 
 const keysDown = new Set<string>();
 canvas.addEventListener('keydown', (e) => {
-  if (!keysDown.has(e.key)) { keysDown.add(e.key); game.simulateKey(e.key); }
+  if (!keysDown.has(e.key)) {
+    keysDown.add(e.key);
+    game.simulateKey(e.key);
+    game.handleKey(e.key);
+  }
 });
 canvas.addEventListener('keyup', (e) => {
   keysDown.delete(e.key);
@@ -38,3 +43,4 @@ window.addEventListener('resize', () => {
 });
 
 game.start();
+canvas.dataset['ready'] = '1';

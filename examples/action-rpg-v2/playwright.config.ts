@@ -34,6 +34,8 @@ export default defineConfig({
         '--disable-dev-shm-usage',
         '--enable-webgl',
         '--ignore-gpu-blocklist',
+        '--proxy-server=direct://',
+        '--proxy-bypass-list=*',
       ],
     },
     viewport: { width: 800, height: 600 },

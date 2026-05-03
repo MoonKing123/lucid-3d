@@ -8,10 +8,16 @@ import { Player } from './player';
 import { CameraController } from './camera-controller';
 import { createTerrain } from './terrain';
 import { EnemyManager } from './enemy-manager';
+import { HUD } from './hud';
+import { Inventory } from './inventory';
+import { SettingsMenu } from './settings-menu';
 import { FollowCamera } from '../../../src/core/follow-camera';
 import type { CombatTarget } from './combat';
 
 export type GameInit = HTMLCanvasElement | { headless: true };
+
+const CANVAS_W = 800;
+const CANVAS_H = 600;
 
 class SimulatedInput {
   private _keys = new Set<string>();
@@ -31,11 +37,17 @@ export class Game {
   private readonly _simInput:      SimulatedInput;
   private readonly _enemyManager:  EnemyManager;
 
+  readonly hud:          HUD;
+  readonly inventory:    Inventory;
+  readonly settingsMenu: SettingsMenu;
+
   frameCount = 0;
   private _drawCallCount = 0;
 
   constructor(init: GameInit) {
     const headless = (init as { headless?: boolean }).headless === true;
+    const width  = headless ? CANVAS_W : (init as HTMLCanvasElement).width  || CANVAS_W;
+    const height = headless ? CANVAS_H : (init as HTMLCanvasElement).height || CANVAS_H;
 
     this._world    = new CollisionWorld();
     this._simInput = new SimulatedInput();
@@ -57,6 +69,11 @@ export class Game {
     terrain.traverse(n => { if (n !== terrain) this._drawCallCount++; });
     this._drawCallCount++; // player
     this._drawCallCount += this._enemyManager.enemies.length; // enemies
+
+    // HUD / 背包 / 设置菜单
+    this.hud          = new HUD(width, height);
+    this.inventory    = new Inventory(width, height);
+    this.settingsMenu = new SettingsMenu(width, height);
 
     if (!headless) {
       const canvas = init as HTMLCanvasElement;
@@ -112,6 +129,20 @@ export class Game {
     this._enemyManager.update(dt);
     this._world.step();
     this._camCtrl.update(dt);
+
+    // 更新 HUD 小地图
+    const enemyPositions = this._enemyManager.enemies.map(e => ({
+      x: e.node.position[0],
+      z: e.node.position[2],
+      dead: e.isDead,
+    }));
+    this.hud.updateMinimapEnemies(
+      this._player.position[0],
+      this._player.position[2],
+      enemyPositions,
+    );
+    this.hud.update(dt);
+
     this.frameCount++;
   }
 
@@ -126,6 +157,17 @@ export class Game {
   triggerMeleeAttack(): void { this._player.triggerMeleeAttack(); }
   /** 触发远程射箭（测试用） */
   triggerBowShoot(): void    { this._player.triggerBowShoot(); }
+  // 按键分发（I=背包, Esc=设置菜单, 1-5=技能）
+  handleKey(key: string): void {
+    if (key === 'i' || key === 'I') {
+      this.inventory.toggle();
+    } else if (key === 'Escape') {
+      this.settingsMenu.toggle();
+    } else if (key >= '1' && key <= '5') {
+      const idx = parseInt(key, 10) - 1;
+      this.hud.triggerSkillCooldown(idx, 3);
+    }
+  }
 
   get player()        { return this._player; }
   get camera()        { return this._camCtrl.camera; }
