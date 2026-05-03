@@ -2,6 +2,7 @@ import { Node3D } from '../../../src/core/node3d';
 import { CharacterController } from '../../../src/gameplay/character-controller';
 import { AnimationMixer } from '../../../src/animation/animation-mixer';
 import { AnimationStateMachine } from '../../../src/animation/animation-state-machine';
+import { BlendTree2D } from '../../../src/animation/blend-tree-2d';
 import type { AnimationAction } from '../../../src/animation/animation-action';
 import type { CollisionWorld } from '../../../src/physics/collision';
 import { vec3, type Vec3 } from '../../../src/math/vec3';
@@ -10,6 +11,7 @@ import {
   createIdleClip,
   createRunClip,
   createAttackClip,
+  createRunDirectionalClips,
 } from './animations';
 import { CombatSystemV2, type CombatTarget } from './combat';
 
@@ -22,21 +24,37 @@ const SPRINT_SPEED = 10;
 
 // 地形高度函数类型（用于脚步贴地 IK）
 export type TerrainHeightFn = (x: number, z: number) => number;
+// BlendTree2D 8 方向映射位置（x=strafe, y=forward）
+const BLEND2D_POSITIONS: { x: number; y: number }[] = [
+  { x:  0.0,  y:  1.0 }, // forward
+  { x:  0.7,  y:  0.7 }, // forward-right
+  { x:  1.0,  y:  0.0 }, // right
+  { x:  0.7,  y: -0.7 }, // back-right
+  { x:  0.0,  y: -1.0 }, // back
+  { x: -0.7,  y: -0.7 }, // back-left
+  { x: -1.0,  y:  0.0 }, // left
+  { x: -0.7,  y:  0.7 }, // forward-left
+];
 
 export class Player {
   readonly node: Node3D;
   readonly mixer: AnimationMixer;
   readonly stateMachine: AnimationStateMachine;
   readonly combat: CombatSystemV2;
+  readonly blendTree2D: BlendTree2D;
 
   private readonly _controller: CharacterController;
   private readonly _attackAction: AnimationAction;
   private readonly _skeleton: ReturnType<typeof createSkeleton>;
 
-  private _horzSpeed  = 0;
-  private _attackTrigger  = false;
-  private _bowTrigger     = false;
+  private _horzSpeed: number = 0;
+  private _attackTrigger: boolean = false;
+  private _bowTrigger: boolean = false;
   private _playerForward: Vec3 = vec3(0, 0, 1);
+
+  // 归一化速度方向（x=strafe, y=forward）
+  private _velX: number = 0;
+  private _velY: number = 1;
 
   constructor(world: CollisionWorld) {
     this.node = new Node3D('player');
@@ -60,6 +78,17 @@ export class Player {
     attackAction.loop = false;
 
     this._attackAction = attackAction;
+
+    // 8 方向 BlendTree2D
+    const dirClips = createRunDirectionalClips();
+    const blendEntries = dirClips.map((clip, i) => ({
+      position: BLEND2D_POSITIONS[i],
+      action: this.mixer.clipAction(clip),
+    }));
+    for (const entry of blendEntries) {
+      entry.action.loop = true;
+    }
+    this.blendTree2D = new BlendTree2D(blendEntries);
 
     this.stateMachine = new AnimationStateMachine();
     this.stateMachine
@@ -137,6 +166,15 @@ export class Player {
       }
       // 记录朝向（XZ 归一化）
       this._playerForward = vec3(dx / mLen, 0, dz / mLen);
+
+      // 计算相机坐标系下的 strafe/forward 分量（归一化）
+      const fwdDot   = dx * fwdX   + dz * fwdZ;
+      const rightDot = dx * rightX + dz * rightZ;
+      const len = Math.sqrt(fwdDot * fwdDot + rightDot * rightDot);
+      if (len > 1e-6) {
+        this._velY = fwdDot / len;   // forward 分量
+        this._velX = rightDot / len; // strafe 分量
+      }
     } else {
       this._horzSpeed = 0;
     }
@@ -153,6 +191,8 @@ export class Player {
     this.stateMachine.update(dt);
 
     // 攻击状态消费触发标志
+    this.stateMachine.update(dt);
+
     if (this.stateMachine.currentState === 'attack') {
       if (this._attackTrigger) {
         this.combat.meleeAttack(this.node.position, this._playerForward);
@@ -164,6 +204,11 @@ export class Player {
     if (input.isKeyDown('g') || input.isKeyDown('G') || this._bowTrigger) {
       this.combat.bowShoot(this.node.position, this._playerForward);
       this._bowTrigger = false;
+    }
+
+    // 在 run 状态下用速度方向驱动 BlendTree2D
+    if (this.stateMachine.currentState === 'run') {
+      this.blendTree2D.setParameters(this._velX, this._velY).update(dt);
     }
 
     this.mixer.update(0);
