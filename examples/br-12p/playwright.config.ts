@@ -14,6 +14,10 @@ const systemChromium = resolve(
 );
 const executablePath = existsSync(systemChromium) ? systemChromium : undefined;
 
+// 视觉测试用服务端口（独立于生产 8080，避免冲突）
+const SERVER_PORT = 18080;
+const VITE_PORT = 5174;
+
 export default defineConfig({
   testDir: './test/visual',
   timeout: 60_000,
@@ -24,7 +28,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: `http://localhost:${VITE_PORT}`,
     browserName: 'chromium',
     headless: true,
     launchOptions: {
@@ -39,11 +43,21 @@ export default defineConfig({
     },
     viewport: { width: 800, height: 600 },
   },
-  webServer: {
-    command: 'npx vite --port 5174',
-    url: 'http://localhost:5174',
-    reuseExistingServer: true,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      // 游戏服务器（消息中继）
+      command: `BR_PORT=${SERVER_PORT} npx vite-node server/index.ts`,
+      port: SERVER_PORT,
+      reuseExistingServer: true,
+      timeout: 15_000,
+    },
+    {
+      // Vite 前端开发服务器
+      command: `npx vite --port ${VITE_PORT}`,
+      url: `http://localhost:${VITE_PORT}`,
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+  ],
   snapshotPathTemplate: '{testDir}/baselines/{testName}{ext}',
 });

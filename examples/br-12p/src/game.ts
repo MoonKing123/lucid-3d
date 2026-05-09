@@ -66,6 +66,9 @@ export class Game {
   /** 已运行帧数（供测试读取） */
   frameCount = 0;
 
+  /** 外部每帧回调（供网络层注册） */
+  private _externalUpdateCbs: Array<(dt: number) => void> = [];
+
   /** 场景中可渲染节点数量的估算（headless 代理 drawCalls） */
   private _drawCallCount = 0;
 
@@ -198,7 +201,13 @@ export class Game {
       this._input.update();  // 清除 keysPressed
     }
 
+    for (const cb of this._externalUpdateCbs) cb(dt);
     this.frameCount++;
+  }
+
+  /** 注册每帧回调（供网络层注册，不影响 headless 测试） */
+  addUpdateCallback(cb: (dt: number) => void): void {
+    this._externalUpdateCbs.push(cb);
   }
 
   private _render(): void {

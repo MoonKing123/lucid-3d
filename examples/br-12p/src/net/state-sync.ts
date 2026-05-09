@@ -4,7 +4,7 @@
  */
 
 import { RemotePlayer } from './remote-player';
-import type { MockNetwork } from './mock-network';
+import type { IGameNetwork } from './game-network';
 import type {
   PlayerJoinMsg,
   PlayerLeaveMsg,
@@ -26,7 +26,7 @@ export type StateSyncEvents = {
  */
 export class StateSync {
   private readonly _players = new Map<string, RemotePlayer>();
-  private readonly _net: MockNetwork;
+  private readonly _net: IGameNetwork;
   /** 本地玩家 ID，收到自己的消息时忽略 */
   private readonly _localId: string;
 
@@ -34,7 +34,7 @@ export class StateSync {
   private _onLeft?: (id: string) => void;
   private _onFired?: (id: string, origin: { x: number; y: number; z: number }, direction: { x: number; y: number; z: number }, weaponId: string) => void;
 
-  constructor(net: MockNetwork, localId = '') {
+  constructor(net: IGameNetwork, localId = '') {
     this._net = net;
     this._localId = localId;
     this._registerHandlers();
