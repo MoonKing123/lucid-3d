@@ -10,7 +10,7 @@ import { WebSocketTransport } from '../../../src/net/websocket-transport';
 import { NetworkClient } from '../../../src/net/network-client';
 import { createLockstepClient } from '../../../src/net/lockstep';
 
-const PORT = 18975;
+const PORT = 18976;
 const BASE_URL = `ws://localhost:${PORT}`;
 
 function waitForConnected(transport: WebSocketTransport, timeout = 5000): Promise<void> {
