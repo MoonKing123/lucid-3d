@@ -3,7 +3,7 @@
  * 负责将本地玩家状态广播出去，以及处理玩家自身受到的网络命中事件。
  */
 
-import type { MockNetwork } from './mock-network';
+import type { IGameNetwork } from './game-network';
 import type { StateSync } from './state-sync';
 import type { PlayerHitMsg } from './message-protocol';
 
@@ -12,7 +12,7 @@ const STATE_SEND_HZ = 10;
 const STATE_SEND_INTERVAL = 1 / STATE_SEND_HZ;
 
 export class NetworkClient {
-  private readonly _net: MockNetwork;
+  private readonly _net: IGameNetwork;
   private readonly _sync: StateSync;
   readonly localId: string;
   readonly localName: string;
@@ -27,7 +27,7 @@ export class NetworkClient {
   /** 本地受到命中的回调（供 Game 注册） */
   private _onLocalHit?: (attackerId: string, damage: number) => void;
 
-  constructor(net: MockNetwork, sync: StateSync, id: string, name: string) {
+  constructor(net: IGameNetwork, sync: StateSync, id: string, name: string) {
     this._net = net;
     this._sync = sync;
     this.localId = id;

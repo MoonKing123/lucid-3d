@@ -8,6 +8,7 @@ import {
   createMockNetwork as _create,
   resetMockNetwork as _reset,
 } from '../../../../src/net/mock-network';
+import type { IGameNetwork } from './game-network';
 import type { NetworkMessage, MessageType } from './message-protocol';
 
 const GAME_ROOM = 'br-12p';
@@ -21,7 +22,7 @@ export function resetMockNetwork(): void {
  * MockNetwork — 游戏专用网络封装。
  * 将引擎的 INetworkTransport 适配为游戏消息协议 API。
  */
-export class MockNetwork {
+export class MockNetwork implements IGameNetwork {
   private readonly _net: _EngineMockNetwork;
   private _connected = false;
 
