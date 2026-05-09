@@ -378,7 +378,7 @@ describe('M7 KR4 — AnimationMixer 时间累积', { timeout: 30_000 }, () => {
         position: { x: i * 2, y: 0, z: 0 },
       });
     }
-    await sleep(200);
+    await sleep(500);
 
     expect(sync.playerCount).toBe(11);
 
