@@ -44,6 +44,10 @@ export class MockNetwork implements INetworkTransport {
     this._listeners.get(type)?.delete(handler);
   }
 
+  createTransport(_playerId: string): INetworkTransport {
+    return new MockNetwork();
+  }
+
   _deliver(type: string, data: unknown): void {
     const handlers = this._listeners.get(type);
     if (!handlers) return;
