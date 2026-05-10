@@ -9,9 +9,27 @@
 
 import { spawn } from 'child_process';
 import { mkdir } from 'fs/promises';
+import { existsSync, readdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import type { Page } from '@playwright/test';
+
+function findHeadlessShellPath(): string | undefined {
+  const cacheBase = join(
+    process.env.HOME ?? '/Users/luochao',
+    'Library/Caches/ms-playwright',
+  );
+  if (!existsSync(cacheBase)) return undefined;
+  for (const entry of readdirSync(cacheBase)) {
+    if (!entry.startsWith('chromium_headless_shell-')) continue;
+    const subdir = join(cacheBase, entry);
+    for (const inner of readdirSync(subdir)) {
+      const candidate = join(subdir, inner, 'chrome-headless-shell');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -118,7 +136,8 @@ async function runDemo(
   try {
     await waitForServer(url, 30000);
 
-    browser = await chromium.launch({ headless: true });
+    const executablePath = findHeadlessShellPath();
+    browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
     const page = await browser.newPage({
       viewport: opts.viewport,
     });
