@@ -8,6 +8,7 @@ describe('post-issue-evidence', () => {
         phase: 50,
         kr: 'KR1 ColorLUTPass',
         demo: 'runner-3d',
+        date: '2026-05-10',
         images: [
           { moment: '0s', url: 'https://raw.githubusercontent.com/MoonKing123/lucid-3d/main/docs/regression/phase-50/runner-3d/0s.png' },
           { moment: '5s', url: 'https://raw.githubusercontent.com/MoonKing123/lucid-3d/main/docs/regression/phase-50/runner-3d/5s.png' },
