@@ -34,6 +34,7 @@ export interface GenerateMarkdownOptions {
   kr: string;
   demo: string;
   images: ImageEntry[];
+  date?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -60,7 +61,7 @@ export function buildRawUrl(filePath: string, repo: string): string {
  * 生成 Issue 评论 markdown。
  */
 export function generateMarkdown(opts: GenerateMarkdownOptions): string {
-  const date = new Date().toISOString().split('T')[0];
+  const date = opts.date ?? new Date().toISOString().split('T')[0];
   const tableRows = opts.images
     .map(img => `| ${img.moment}   | ![${img.moment}](${img.url}) |`)
     .join('\n');
